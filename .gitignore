@@ -1,0 +1,25 @@
+## Build & Binary Folders
+bin/
+obj/
+*.exe
+*.dll
+*.pdb
+*.deps.json
+*.runtimeconfig.json
+
+## IDE & Editor Cache
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Sensitive Configurations & Backups (CRITICAL FOR GITHUB)
+config.json
+texts.json
+tokens.txt
+token.txt
+backups/
+*.log

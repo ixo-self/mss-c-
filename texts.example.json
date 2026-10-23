@@ -1,0 +1,46 @@
+{
+  "guild_settings": {
+    "target_guild_name": "永恆深淵",
+    "target_guild_description": "✦ 終焉星門與虛空星輝 · 永恆深淵試煉迷宮 ◈ 踏入無盡迴廊，尋找真實之光",
+    "current_theme": "abyss",
+    "cleanup_rename_name": "深淵探索者",
+    "top_reset_channel_name": "重製伺服器",
+    "rules_channel_name": "▸-深淵守則-核心規章",
+    "entrance_channel_name": "▸-深淵入口-星輝大廳",
+    "restore_channel_name": "◈-災難復原中心"
+  },
+  "default_values": {
+    "cleanup_channel_limit": 100,
+    "cleanup_timeout_minutes": 5,
+    "admin_dm_count": 10,
+    "cleanup_create_channels": 150,
+    "cleanup_create_roles": 50,
+    "channel_count": 50,
+    "role_count": 10
+  },
+  "default_names": {
+    "channel_names": [
+      "星輝之境",
+      "深淵走廊",
+      "迷宮入口",
+      "星光迴廊",
+      "幽暗裂隙",
+      "幻境試煉",
+      "記憶迴廊",
+      "遺忘深淵"
+    ],
+    "role_names": [
+      "星輝行者",
+      "深淵探索者",
+      "迷宮學者",
+      "星之守衛",
+      "破曉追尋者",
+      "暗夜行者",
+      "虛空漫步者"
+    ]
+  },
+  "messages": {
+    "admin_dm_message": "迷宮以開啟",
+    "default_maze_message": "✦ **【永恆深淵 · 迷宮試煉通道】**\n◈ 迷宮節點已喚醒，幽暗的星輝在四周流轉...\n◈ *請在此領取對應深淵身分組以解鎖後續通道並前進！*"
+  }
+}
