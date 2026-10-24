@@ -466,6 +466,13 @@ namespace AbyssCore
             return fallbackResp != null && fallbackResp.IsSuccessStatusCode;
         }
 
+        public async Task<bool> ModifyGuildIconAsync(string guildId, string iconB64)
+        {
+            var payload = new { icon = iconB64 };
+            using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/guilds/{guildId}", payload);
+            return resp != null && resp.IsSuccessStatusCode;
+        }
+
         #endregion
 
         #region --- 成員操作與私訊 ---

