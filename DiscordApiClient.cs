@@ -174,6 +174,28 @@ namespace AbyssCore
             return null;
         }
 
+        public async Task<JsonElement?> GetGuildAsync(string guildId)
+        {
+            using var resp = await SafeRequestAsync(HttpMethod.Get, $"/guilds/{guildId}");
+            if (resp != null && resp.IsSuccessStatusCode)
+            {
+                string json = await resp.Content.ReadAsStringAsync();
+                return JsonDocument.Parse(json).RootElement.Clone();
+            }
+            return null;
+        }
+
+        public async Task<JsonElement?> GetGuildMemberAsync(string guildId, string userId)
+        {
+            using var resp = await SafeRequestAsync(HttpMethod.Get, $"/guilds/{guildId}/members/{userId}");
+            if (resp != null && resp.IsSuccessStatusCode)
+            {
+                string json = await resp.Content.ReadAsStringAsync();
+                return JsonDocument.Parse(json).RootElement.Clone();
+            }
+            return null;
+        }
+
         public async Task<List<JsonElement>> GetCurrentUserGuildsAsync()
         {
             var list = new List<JsonElement>();

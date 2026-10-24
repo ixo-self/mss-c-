@@ -160,14 +160,14 @@ namespace AbyssCore
 
         private async Task SendIdentifyAsync()
         {
-            // 請求 GUILDS, GUILD_MESSAGES, MESSAGE_CONTENT (Intents: 1 | 512 | 32768 = 33281)
+            // 請求 GUILDS(1), GUILD_MEMBERS(2), GUILD_MESSAGES(512), DIRECT_MESSAGES(4096), MESSAGE_CONTENT(32768) = 37379
             var identifyPayload = new
             {
                 op = 2,
                 d = new
                 {
                     token = _botToken,
-                    intents = 33281,
+                    intents = 37379,
                     properties = new
                     {
                         os = "windows",
