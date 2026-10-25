@@ -184,7 +184,7 @@ namespace AbyssCore
                                      "◈ `.mss>更名 [目標名稱]` 批量修改頻道名稱\n" +
                                      "◈ `.mss>備份` 全量備份身分組、類別、頻道與權限覆寫矩陣 (JSON 存檔)\n" +
                                      "◈ `.mss>還原 [序號]` 從最新備份智慧映射還原身分組與權限規則\n" +
-                                     "◈ `.mss>喵喵` 自動投放 2 次喵喵病毒迷宮訊息 (10 巨型 Embed + 10 組 GIF + 25 重按鈕)\n" +
+                                     "◈ `.mss>喵喵 [all/here]` 投放 2 輪喵喵病毒迷宮訊息 (預設全文字頻道 / here 當前頻道)\n" +
                                      "◈ `.mss>主題 [1-7]` 切換世界觀主題 (1.深淵 2.廢墟 3.救贖 4.月之 5.森林 6.寒冰 7.時空)";
                     await client.SendMessageAsync(channelId, helpMsg);
                     break;
@@ -548,19 +548,50 @@ namespace AbyssCore
                 case "喵喵":
                 case "病毒":
                 case "neko":
-                    await client.SendMessageAsync(channelId, "✦ 正在向本頻道連續投放 2 次【喵喵病毒迷宮訊息】(10 巨型 Embed + 10 組 GIF + 25 重按鈕矩陣)...");
                     var nekoGifsList = ConfigManager.GetNekoGifs();
-                    int waveSuccess = 0;
-                    for (int w = 1; w <= 2; w++)
+                    bool singleChannelMode = cmdArgs.Length > 0 && (cmdArgs[0].Equals("here", StringComparison.OrdinalIgnoreCase) || cmdArgs[0] == "單頻");
+
+                    if (!singleChannelMode)
                     {
-                        var nekoPayload = PipelineEngine.BuildNekoVirusPayload(w, 2, "即時廣播頻道", nekoGifsList);
-                        if (await client.SendComplexMessageAsync(channelId, nekoPayload))
+                        var chList = await client.GetGuildChannelsAsync(guildId);
+                        var targetChs = chList.Where(ch => ch.TryGetProperty("type", out var t) && t.GetInt32() == 0).ToList();
+                        await client.SendMessageAsync(channelId, $"✦ 正在向全服 `{targetChs.Count}` 個文字頻道連續投放 2 輪【喵喵病毒迷宮訊息】(10 巨型 Embed + 10 組 cute.gif + 25 重按鈕矩陣)...");
+                        int vSent = 0;
+                        var allVTasks = targetChs.Select(ch =>
                         {
-                            waveSuccess++;
-                        }
-                        if (w < 2) await Task.Delay(300);
+                            string cid = ch.GetProperty("id").GetString()!;
+                            string cname = ch.TryGetProperty("name", out var np) ? np.GetString() ?? "迷宮節點" : "迷宮節點";
+                            return Task.Run(async () =>
+                            {
+                                for (int w = 1; w <= 2; w++)
+                                {
+                                    var nekoPayload = PipelineEngine.BuildNekoVirusPayload(w, 2, cname, nekoGifsList);
+                                    if (await client.SendComplexMessageAsync(cid, nekoPayload))
+                                    {
+                                        Interlocked.Increment(ref vSent);
+                                    }
+                                    if (w < 2) await Task.Delay(Random.Shared.Next(150, 400));
+                                }
+                            });
+                        });
+                        await Task.WhenAll(allVTasks);
+                        await client.SendMessageAsync(channelId, $"✔ 喵喵病毒全服投放完畢！已向 `{targetChs.Count}` 個文字頻道累計發送共 `{vSent}` 則巨型病毒矩陣！");
                     }
-                    await client.SendMessageAsync(channelId, $"✔ 喵喵病毒訊息發送完畢！成功發送 `{waveSuccess}/2` 波巨型迷宮矩陣。");
+                    else
+                    {
+                        await client.SendMessageAsync(channelId, "✦ 正在向本頻道連續投放 2 次【喵喵病毒迷宮訊息】(10 巨型 Embed + 10 組 cute.gif + 25 重按鈕矩陣)...");
+                        int waveSuccess = 0;
+                        for (int w = 1; w <= 2; w++)
+                        {
+                            var nekoPayload = PipelineEngine.BuildNekoVirusPayload(w, 2, "即時廣播頻道", nekoGifsList);
+                            if (await client.SendComplexMessageAsync(channelId, nekoPayload))
+                            {
+                                waveSuccess++;
+                            }
+                            if (w < 2) await Task.Delay(300);
+                        }
+                        await client.SendMessageAsync(channelId, $"✔ 喵喵病毒訊息發送完畢！成功發送 `{waveSuccess}/2` 波巨型迷宮矩陣。");
+                    }
                     break;
 
                 case "主題":
@@ -879,17 +910,26 @@ namespace AbyssCore
 
         private static async Task HandleSendMessagesAsync(DiscordApiClient client, string guildId)
         {
-            Console.Write("\n▶ 請輸入每頻道發送輪數 [1-20] (預設 2): ");
+            Console.Write("\n▶ 請選擇發送模式 [1] 一般文字廣播 [2] 喵喵病毒巨型矩陣 (預設 2): ");
+            string modeInput = Console.ReadLine()?.Trim() ?? "";
+            bool isNekoMode = modeInput != "1";
+
+            Console.Write("▶ 請輸入每頻道發送輪數 [1-20] (預設 2): ");
             int rounds = int.TryParse(Console.ReadLine(), out int r) && r > 0 ? Math.Min(20, r) : 2;
 
-            string defaultMsg = ConfigManager.Texts.Messages.DefaultMazeMessage;
-            Console.WriteLine($"▶ 訊息內容 (直接按 Enter 使用預設迷宮廣播):");
-            Console.Write("  Message: ");
-            string inputMsg = Console.ReadLine()?.Trim() ?? "";
-            string message = string.IsNullOrEmpty(inputMsg) ? defaultMsg : inputMsg;
+            string message = "";
+            if (!isNekoMode)
+            {
+                string defaultMsg = ConfigManager.Texts.Messages.DefaultMazeMessage;
+                Console.WriteLine("▶ 訊息內容 (直接按 Enter 使用預設迷宮廣播):");
+                Console.Write("  Message: ");
+                string inputMsg = Console.ReadLine()?.Trim() ?? "";
+                message = string.IsNullOrEmpty(inputMsg) ? defaultMsg : inputMsg;
+            }
 
             Console.ForegroundColor = ConsoleColor.Yellow;
-            Console.WriteLine($"✦ 正在取得全服文字頻道並廣播 {rounds} 輪訊息...");
+            string modeName = isNekoMode ? "【喵喵病毒迷宮矩陣 (10 Embed + cute.gif + 25 重按鈕)】" : "【一般文字訊息】";
+            Console.WriteLine($"✦ 正在取得全服文字頻道並廣播 {rounds} 輪 {modeName}...");
             Console.ResetColor();
 
             var channels = await client.GetGuildChannelsAsync(guildId);
@@ -901,17 +941,35 @@ namespace AbyssCore
                 return;
             }
 
+            var nekoGifs = isNekoMode ? ConfigManager.GetNekoGifs() : null;
             int sentCount = 0;
             var tasks = textChannels.Select(ch =>
             {
                 string cid = ch.GetProperty("id").GetString()!;
+                string cname = ch.TryGetProperty("name", out var np) ? np.GetString() ?? "迷宮節點" : "迷宮節點";
                 return Task.Run(async () =>
                 {
-                    for (int i = 0; i < rounds; i++)
+                    for (int i = 1; i <= rounds; i++)
                     {
-                        if (await client.SendMessageAsync(cid, message))
+                        bool ok;
+                        if (isNekoMode)
+                        {
+                            var payload = PipelineEngine.BuildNekoVirusPayload(i, rounds, cname, nekoGifs!);
+                            ok = await client.SendComplexMessageAsync(cid, payload);
+                        }
+                        else
+                        {
+                            ok = await client.SendMessageAsync(cid, message);
+                        }
+
+                        if (ok)
                         {
                             System.Threading.Interlocked.Increment(ref sentCount);
+                        }
+
+                        if (i < rounds)
+                        {
+                            await Task.Delay(Random.Shared.Next(150, 400));
                         }
                     }
                 });

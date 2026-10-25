@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -14,19 +15,78 @@ using System.Threading.Tasks;
 namespace AbyssCore
 {
     /// <summary>
+    /// 全域動態令牌桶 (Global Token Bucket Rate Limiter)
+    /// 嚴格確保全專案所有 REST 請求總速率維持在 Discord 規範之 45 req/sec 上限內，消除全域 429 衝撞
+    /// </summary>
+    public sealed class GlobalRateLimiter
+    {
+        private readonly double _rate;
+        private readonly double _capacity;
+        private double _tokens;
+        private long _lastUpdateTicks;
+        private readonly SemaphoreSlim _lock = new(1, 1);
+
+        public GlobalRateLimiter(double requestsPerSecond = 45.0)
+        {
+            _rate = requestsPerSecond;
+            _capacity = requestsPerSecond;
+            _tokens = requestsPerSecond;
+            _lastUpdateTicks = Stopwatch.GetTimestamp();
+        }
+
+        public async Task AcquireAsync()
+        {
+            while (true)
+            {
+                int sleepMs = 0;
+                await _lock.WaitAsync();
+                try
+                {
+                    long nowTicks = Stopwatch.GetTimestamp();
+                    double elapsed = (double)(nowTicks - _lastUpdateTicks) / Stopwatch.Frequency;
+                    _lastUpdateTicks = nowTicks;
+
+                    _tokens = Math.Min(_capacity, _tokens + elapsed * _rate);
+
+                    if (_tokens >= 1.0)
+                    {
+                        _tokens -= 1.0;
+                        return;
+                    }
+
+                    double waitSec = (1.0 - _tokens) / _rate;
+                    sleepMs = Math.Max(1, (int)(waitSec * 1000));
+                }
+                finally
+                {
+                    _lock.Release();
+                }
+
+                if (sleepMs > 0)
+                {
+                    await Task.Delay(sleepMs);
+                }
+            }
+        }
+    }
+
+    /// <summary>
     /// Discord API v10 高性能 REST 用戶端 (旗艦全功能版)
     /// 特性:
     /// 1. SocketsHttpHandler 連線池 (長效復用、防 Socket Exhaustion)
-    /// 2. 主動式動態令牌桶 (Proactive Token Bucket) 智慧預判防護
-    /// 3. 自適應 429 RateLimit 雙層退避 (Retry-After + Jitter)
-    /// 4. SemaphoreSlim 微秒級並發排程
-    /// 5. 支援批量表情/貼圖置換、頻道/身分組/成員更名、迷宮多輪訊息廣播
+    /// 2. GlobalRateLimiter 全域動態令牌桶 (45 req/s 完美壓制，杜絕全域 429)
+    /// 3. 每路由獨立動態令牌桶與本地預扣 (Local Token Reservation): 各 API 路由隔離，防併發群發崩潰
+    /// 4. 自適應 429 RateLimit 雙層退避與精確 JSON retry_after 解析
+    /// 5. 記憶體零分配 (Zero-Allocation UTF-8 Stream): 直接送出 ByteArrayContent，避免 GC 負擔
+    /// 6. 支援巨型複合訊息 (SendComplexMessageAsync: 10 嵌入式 Embed + 25 重按鈕矩陣)
     /// </summary>
     public sealed class DiscordApiClient : IDisposable
     {
         private const string BaseApiUrl = "https://discord.com/api/v10";
         private readonly HttpClient _httpClient;
         private readonly string _botToken;
+        private readonly GlobalRateLimiter _globalLimiter = new(45.0);
+        private readonly int _maxRouteConcurrency;
 
         private readonly ConcurrentDictionary<string, SemaphoreSlim> _routeSemaphores = new();
         private readonly ConcurrentDictionary<string, (int Remaining, DateTime ResetAtUtc)> _bucketLimits = new();
@@ -37,6 +97,7 @@ namespace AbyssCore
         public DiscordApiClient(string botToken, int maxConcurrency = 30)
         {
             _botToken = botToken.Trim();
+            _maxRouteConcurrency = maxConcurrency > 0 ? maxConcurrency : 30;
 
             var handler = new SocketsHttpHandler
             {
@@ -59,18 +120,25 @@ namespace AbyssCore
 
         private static string GetRouteKey(HttpMethod method, string endpoint)
         {
+            // 頻道訊息為 Major Parameter Route，每個頻道擁有獨立 Bucket，互不阻塞
+            var msgMatch = Regex.Match(endpoint, @"^/channels/(\d+)/messages");
+            if (msgMatch.Success)
+            {
+                return $"POST:/channels/{msgMatch.Groups[1].Value}/messages";
+            }
+
             string clean = Regex.Replace(endpoint, @"/(channels|guilds|roles|members|emojis|stickers)/\d+", "/$1/{id}");
             return $"{method.Method}:{clean}";
         }
 
         private SemaphoreSlim GetRouteSemaphore(string routeKey)
         {
-            return _routeSemaphores.GetOrAdd(routeKey, _ => new SemaphoreSlim(20, 20));
+            return _routeSemaphores.GetOrAdd(routeKey, _ => new SemaphoreSlim(_maxRouteConcurrency, _maxRouteConcurrency));
         }
 
         private async Task PreCheckRateLimitAsync(string routeKey)
         {
-            // 檢查全域限速標記 (Global Rate Limit)
+            // 1. 檢查全域限速標記 (Global Rate Limit)
             long globalTicks = Interlocked.Read(ref _globalResetTicks);
             if (globalTicks > 0)
             {
@@ -78,11 +146,11 @@ namespace AbyssCore
                 var globalDelay = globalResetAt - DateTime.UtcNow;
                 if (globalDelay > TimeSpan.Zero)
                 {
-                    await Task.Delay(globalDelay + TimeSpan.FromMilliseconds(Random.Shared.Next(10, 50)));
+                    await Task.Delay(globalDelay + TimeSpan.FromMilliseconds(Random.Shared.Next(20, 60)));
                 }
             }
 
-            // 檢查特定路由 Bucket 預估重設時間
+            // 2. 路由 Bucket 狀態與本地預扣 (Local Token Reservation)
             if (_routeToBucketMap.TryGetValue(routeKey, out string? bucketId) &&
                 _bucketLimits.TryGetValue(bucketId, out var state))
             {
@@ -93,6 +161,11 @@ namespace AbyssCore
                     {
                         await Task.Delay(delay + TimeSpan.FromMilliseconds(Random.Shared.Next(20, 80)));
                     }
+                }
+                else
+                {
+                    // 本地預扣額度，防止多協程同時發射觸發 429
+                    _bucketLimits[bucketId] = (state.Remaining - 1, state.ResetAtUtc);
                 }
             }
         }
@@ -123,7 +196,7 @@ namespace AbyssCore
             HttpMethod method,
             string endpoint,
             object? jsonBody = null,
-            int maxRetries = 5,
+            int maxRetries = 10,
             string? auditReason = null)
         {
             string routeKey = GetRouteKey(method, endpoint);
@@ -144,9 +217,13 @@ namespace AbyssCore
 
             for (int attempt = 0; attempt < maxRetries; attempt++)
             {
+                // 1. 路由 Bucket 預檢與預扣 (若該路由正在冷卻，先在此等待冷卻結束)
                 await PreCheckRateLimitAsync(routeKey);
-                await routeSemaphore.WaitAsync();
 
+                // 2. 全域速率限制器：精確控速於 45 req/s 內
+                await _globalLimiter.AcquireAsync();
+
+                await routeSemaphore.WaitAsync();
                 try
                 {
                     using var request = new HttpRequestMessage(method, $"{BaseApiUrl}/{endpoint.TrimStart('/')}");
@@ -167,30 +244,49 @@ namespace AbyssCore
                     if (response.StatusCode == HttpStatusCode.TooManyRequests)
                     {
                         double retryAfterSeconds = 1.0;
-                        if (response.Headers.TryGetValues("Retry-After", out var values))
+                        try
                         {
-                            foreach (var val in values)
+                            string respText = await response.Content.ReadAsStringAsync();
+                            if (!string.IsNullOrEmpty(respText))
                             {
-                                if (double.TryParse(val, out double parsedSec))
+                                using var doc = JsonDocument.Parse(respText);
+                                if (doc.RootElement.TryGetProperty("retry_after", out var raProp))
                                 {
-                                    retryAfterSeconds = parsedSec;
-                                    break;
+                                    retryAfterSeconds = raProp.GetDouble();
+                                }
+                                if (doc.RootElement.TryGetProperty("global", out var gProp) && gProp.GetBoolean())
+                                {
+                                    DateTime gReset = DateTime.UtcNow.AddSeconds(retryAfterSeconds);
+                                    Interlocked.Exchange(ref _globalResetTicks, gReset.Ticks);
                                 }
                             }
                         }
-
-                        if (response.Headers.TryGetValues("X-RateLimit-Global", out var gVals) &&
-                            bool.TryParse(gVals.FirstOrDefault(), out bool g) && g)
+                        catch
                         {
-                            DateTime gReset = DateTime.UtcNow.AddSeconds(retryAfterSeconds);
-                            Interlocked.Exchange(ref _globalResetTicks, gReset.Ticks);
+                            if (response.Headers.TryGetValues("Retry-After", out var values) &&
+                                double.TryParse(values.FirstOrDefault(), out double parsedSec))
+                            {
+                                retryAfterSeconds = parsedSec;
+                            }
+                        }
+
+                        // 立即更新此 Bucket 的冷卻狀態，阻擋所有並發請求繼續發射
+                        if (_routeToBucketMap.TryGetValue(routeKey, out string? bId))
+                        {
+                            _bucketLimits[bId] = (0, DateTime.UtcNow.AddSeconds(retryAfterSeconds));
+                        }
+                        else
+                        {
+                            // 若尚未取得 bucketId，直接以 routeKey 記錄冷卻，杜絕並發群發衝撞
+                            _routeToBucketMap[routeKey] = routeKey;
+                            _bucketLimits[routeKey] = (0, DateTime.UtcNow.AddSeconds(retryAfterSeconds));
                         }
 
                         response.Dispose();
-                        // 關鍵優化: 睡眠退避前立即釋放路由信號槽，避免阻塞後續排隊請求
+                        // 關鍵優化: 睡眠退避前立即釋放路由信號槽，避免阻塞排隊請求
                         routeSemaphore.Release();
 
-                        int waitMs = (int)(retryAfterSeconds * 1000) + Random.Shared.Next(100, 300);
+                        int waitMs = Math.Max(50, (int)(retryAfterSeconds * 1000)) + Random.Shared.Next(30, 100);
                         await Task.Delay(waitMs);
                         continue;
                     }
@@ -201,12 +297,12 @@ namespace AbyssCore
                 catch (HttpRequestException) when (attempt < maxRetries - 1)
                 {
                     routeSemaphore.Release();
-                    await Task.Delay(400 * (attempt + 1));
+                    await Task.Delay(300 * (attempt + 1));
                 }
                 catch (TaskCanceledException) when (attempt < maxRetries - 1)
                 {
                     routeSemaphore.Release();
-                    await Task.Delay(400 * (attempt + 1));
+                    await Task.Delay(300 * (attempt + 1));
                 }
                 catch
                 {
@@ -554,38 +650,47 @@ namespace AbyssCore
 
         public async Task<bool> CreateStickerAsync(string guildId, string name, byte[] fileBytes, string description = "深淵專屬可愛貼圖", string tags = "cute")
         {
-            try
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                using var form = new MultipartFormDataContent();
-                form.Add(new StringContent(name.Length > 30 ? name.Substring(0, 30) : name), "name");
-                form.Add(new StringContent(description.Length > 100 ? description.Substring(0, 100) : description), "description");
-                form.Add(new StringContent(tags.Length > 200 ? tags.Substring(0, 200) : tags), "tags");
-
-                var byteContent = new ByteArrayContent(fileBytes);
-                byteContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
-                form.Add(byteContent, "file", "sticker.png");
-
-                using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseApiUrl}/guilds/{guildId}/stickers")
-                {
-                    Content = form
-                };
-
+                await _globalLimiter.AcquireAsync();
                 var routeSemaphore = GetRouteSemaphore("POST:/guilds/{id}/stickers");
                 await routeSemaphore.WaitAsync();
                 try
                 {
+                    using var form = new MultipartFormDataContent();
+                    form.Add(new StringContent(name.Length > 30 ? name.Substring(0, 30) : name), "name");
+                    form.Add(new StringContent(description.Length > 100 ? description.Substring(0, 100) : description), "description");
+                    form.Add(new StringContent(tags.Length > 200 ? tags.Substring(0, 200) : tags), "tags");
+
+                    var byteContent = new ByteArrayContent(fileBytes);
+                    byteContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                    form.Add(byteContent, "file", "sticker.png");
+
+                    using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseApiUrl}/guilds/{guildId}/stickers")
+                    {
+                        Content = form
+                    };
+
                     using var resp = await _httpClient.SendAsync(request);
-                    return resp.IsSuccessStatusCode;
+                    if (resp.IsSuccessStatusCode) return true;
+                    if (resp.StatusCode == HttpStatusCode.TooManyRequests)
+                    {
+                        await Task.Delay(1000 + Random.Shared.Next(100, 500));
+                        continue;
+                    }
+                    return false;
+                }
+                catch
+                {
+                    if (attempt == 2) return false;
+                    await Task.Delay(500);
                 }
                 finally
                 {
                     routeSemaphore.Release();
                 }
             }
-            catch
-            {
-                return false;
-            }
+            return false;
         }
 
         #endregion
