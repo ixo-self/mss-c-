@@ -42,5 +42,19 @@
   "messages": {
     "admin_dm_message": "迷宮以開啟",
     "default_maze_message": "✦ **【永恆深淵 · 迷宮試煉通道】**\n◈ 迷宮節點已喚醒，幽暗的星輝在四周流轉...\n◈ *請在此領取對應深淵身分組以解鎖後續通道並前進！*"
+  },
+  "neko_virus": {
+    "gifs": [
+      "https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif",
+      "https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif",
+      "https://media.giphy.com/media/mlvseq9yvZhba/giphy.gif",
+      "https://media.giphy.com/media/BzyTuYCmvSORqs1ABM/giphy.gif",
+      "https://media.giphy.com/media/vFKqnCdLPNOKc/giphy.gif",
+      "https://media.giphy.com/media/unQ3IJU2RG7DO/giphy.gif",
+      "https://media.giphy.com/media/ICOgUNjpvO0PC/giphy.gif",
+      "https://media.giphy.com/media/Nm8ZPAGOwZUQM/giphy.gif",
+      "https://media.giphy.com/media/MDJ9IbxxvDUQM/giphy.gif",
+      "https://media.giphy.com/media/C9x8gX02SnMIoAClXA/giphy.gif"
+    ]
   }
 }

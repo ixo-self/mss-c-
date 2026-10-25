@@ -14,6 +14,20 @@ namespace AbyssCore
         public static BotConfig Config { get; private set; } = new();
         public static TextsConfig Texts { get; private set; } = new();
 
+        /// <summary>
+        /// 取得 10 組喵喵病毒專屬 GIF 媒體連結 (優先讀取 texts.json 設定，不足 10 組自動補齊內建高速連結)
+        /// </summary>
+        public static List<string> GetNekoGifs()
+        {
+            var list = new List<string>(Texts.NekoVirus.Gifs);
+            int idx = 0;
+            while (list.Count < 10 && idx < AssetConstants.DefaultNekoVirusGifs.Length)
+            {
+                list.Add(AssetConstants.DefaultNekoVirusGifs[idx++]);
+            }
+            return list;
+        }
+
         public static void Load(string basePath)
         {
             string configPath = Path.Combine(basePath, "config.json");
@@ -65,6 +79,15 @@ namespace AbyssCore
 
         [JsonPropertyName("messages")]
         public MessagesConfig Messages { get; set; } = new();
+
+        [JsonPropertyName("neko_virus")]
+        public NekoVirusConfig NekoVirus { get; set; } = new();
+    }
+
+    public class NekoVirusConfig
+    {
+        [JsonPropertyName("gifs")]
+        public List<string> Gifs { get; set; } = new();
     }
 
     public class GuildSettings

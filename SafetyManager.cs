@@ -3,35 +3,69 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Threading.Channels;
 using System.Threading.Tasks;
 
 namespace AbyssCore
 {
     /// <summary>
-    /// 安全防護與審計中樞 (前置權限試跑、階級防護校驗、危險操作確認與審計日誌)
+    /// 安全防護與審計中樞 (前置權限試跑、階級防護校驗、危險操作確認與 Channel 非同步審計日誌)
     /// </summary>
     public static class SafetyManager
     {
         private const string LogDirectory = "backups";
         private const string AuditLogFile = "audit.log";
 
+        private static readonly Channel<string> _auditChannel = Channel.CreateUnbounded<string>(new UnboundedChannelOptions
+        {
+            SingleReader = true,
+            SingleWriter = false
+        });
+
+        static SafetyManager()
+        {
+            Task.Run(ProcessAuditLogQueueAsync);
+        }
+
+        private static async Task ProcessAuditLogQueueAsync()
+        {
+            Directory.CreateDirectory(LogDirectory);
+            string path = Path.Combine(LogDirectory, AuditLogFile);
+            var reader = _auditChannel.Reader;
+            var batch = new List<string>(64);
+
+            while (await reader.WaitToReadAsync())
+            {
+                batch.Clear();
+                while (reader.TryRead(out var item))
+                {
+                    batch.Add(item);
+                    if (batch.Count >= 256) break;
+                }
+
+                if (batch.Count > 0)
+                {
+                    try
+                    {
+                        await File.AppendAllLinesAsync(path, batch);
+                    }
+                    catch
+                    {
+                        // 忽略磁碟例外，確保不影響核心 API 吞吐運作
+                    }
+                }
+            }
+        }
+
         /// <summary>
-        /// 記錄敏感操作至本地審計日誌 (audit.log)
+        /// 記錄敏感操作至本地審計日誌 (非同步 Channel 無鎖寫入，極速微秒級響應)
         /// </summary>
         public static async Task LogAuditAsync(string trigger, string action, string target, string details = "")
         {
-            try
-            {
-                Directory.CreateDirectory(LogDirectory);
-                string path = Path.Combine(LogDirectory, AuditLogFile);
-                string line = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC] [AUDIT] 觸發者: {trigger} | 動作: {action} | 目標: {target}" +
-                              (string.IsNullOrEmpty(details) ? "" : $" | 說明: {details}") + Environment.NewLine;
-                await File.AppendAllTextAsync(path, line);
-            }
-            catch
-            {
-                // 忽略審計日誌寫入異常，保證核心流程順暢
-            }
+            string line = $"[{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss} UTC] [AUDIT] 觸發者: {trigger} | 動作: {action} | 目標: {target}" +
+                          (string.IsNullOrEmpty(details) ? "" : $" | 說明: {details}");
+            _auditChannel.Writer.TryWrite(line);
+            await Task.CompletedTask;
         }
 
         /// <summary>

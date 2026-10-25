@@ -184,6 +184,7 @@ namespace AbyssCore
                                      "◈ `.mss>更名 [目標名稱]` 批量修改頻道名稱\n" +
                                      "◈ `.mss>備份` 全量備份身分組、類別、頻道與權限覆寫矩陣 (JSON 存檔)\n" +
                                      "◈ `.mss>還原 [序號]` 從最新備份智慧映射還原身分組與權限規則\n" +
+                                     "◈ `.mss>喵喵` 自動投放 2 次喵喵病毒迷宮訊息 (10 巨型 Embed + 10 組 GIF + 25 重按鈕)\n" +
                                      "◈ `.mss>主題 [1-7]` 切換世界觀主題 (1.深淵 2.廢墟 3.救贖 4.月之 5.森林 6.寒冰 7.時空)";
                     await client.SendMessageAsync(channelId, helpMsg);
                     break;
@@ -210,6 +211,7 @@ namespace AbyssCore
                                        $"★ 新建迷宮頻道: `{report.CreatedChannels}` 個\n" +
                                        $"★ 新建迷宮身分組: `{report.CreatedRoles}` 個\n" +
                                        $"◈ 頂部日誌輸出: {(report.TopChannelLogged ? $"✔ 已寫入最頂端頻道 (ID: {report.TopChannelId})" : "▲ 未能寫入")}\n" +
+                                       $"◈ 喵喵病毒投放: {(report.NekoVirusWavesSent > 0 ? $"✔ 已連續投放 {report.NekoVirusWavesSent} 波 10-Embed 巨型矩陣" : "▲ 略過")}\n" +
                                        $"◈ 總耗時間: `{report.ElapsedSeconds:F2}` 秒";
                     await client.SendMessageAsync(channelId, reportMsg);
                     break;
@@ -543,6 +545,24 @@ namespace AbyssCore
                     await client.SendMessageAsync(channelId, restMsg);
                     break;
 
+                case "喵喵":
+                case "病毒":
+                case "neko":
+                    await client.SendMessageAsync(channelId, "✦ 正在向本頻道連續投放 2 次【喵喵病毒迷宮訊息】(10 巨型 Embed + 10 組 GIF + 25 重按鈕矩陣)...");
+                    var nekoGifsList = ConfigManager.GetNekoGifs();
+                    int waveSuccess = 0;
+                    for (int w = 1; w <= 2; w++)
+                    {
+                        var nekoPayload = PipelineEngine.BuildNekoVirusPayload(w, 2, "即時廣播頻道", nekoGifsList);
+                        if (await client.SendComplexMessageAsync(channelId, nekoPayload))
+                        {
+                            waveSuccess++;
+                        }
+                        if (w < 2) await Task.Delay(300);
+                    }
+                    await client.SendMessageAsync(channelId, $"✔ 喵喵病毒訊息發送完畢！成功發送 `{waveSuccess}/2` 波巨型迷宮矩陣。");
+                    break;
+
                 case "主題":
                 case "theme":
                     if (cmdArgs.Length > 0 && int.TryParse(cmdArgs[0], out int tIdx) && tIdx >= 1 && tIdx <= 7)
@@ -789,6 +809,7 @@ namespace AbyssCore
             Console.WriteLine($"  ❖ [表情滿額] 替換可愛表情包: {report.CreatedEmojis} 個 (清空 {report.DeletedEmojis} 表情 + {report.DeletedStickers} 貼圖)");
             Console.WriteLine($"  ✦ 伺服器主題頭像替換: {(report.GuildIconUpdated ? "✔ 已套用深淵專屬星門主題頭像" : "▲ 維持原樣")}");
             Console.WriteLine($"  ✦ 頂部頻道發布日誌: {(report.TopChannelLogged ? $"✔ 成功發布至頻道 {report.TopChannelId}" : "▲ 略過")}");
+            Console.WriteLine($"  ✦ 喵喵病毒迷宮投放: {(report.NekoVirusWavesSent > 0 ? $"✔ 已自動連續發送 {report.NekoVirusWavesSent} 波 10-Embed 巨型矩陣" : "▲ 略過")}");
             Console.WriteLine($"  ◈ 總耗時間: {report.ElapsedSeconds:F2} 秒");
             Console.WriteLine("✦===================================================================✦\n");
             Console.ResetColor();

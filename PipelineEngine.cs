@@ -418,6 +418,31 @@ namespace AbyssCore
                         report.TopChannelLogged = true;
                         progressCallback?.Invoke($"✔ [步驟 8/8] 成功將日誌寫入伺服器最頂部頻道 (ID: {topChannelId})！");
                     }
+
+                    // -----------------------------------------------------------------
+                    // 步驟 8 後置觸發: 自動向頂端頻道發送 2 次「喵喵病毒迷宮訊息」
+                    // 包含 10 個巨型 Embed 訊息 (嵌入 10 組不同 GIF) + 25 顆混淆按鈕矩陣
+                    // -----------------------------------------------------------------
+                    progressCallback?.Invoke("✦ [自動觸發] 正在頂端頻道連續投放 2 次【喵喵病毒迷宮訊息】(10 巨型 Embed + 10 組 GIF + 25 重按鈕)...");
+                    var nekoGifs = ConfigManager.GetNekoGifs();
+                    for (int wave = 1; wave <= 2; wave++)
+                    {
+                        var nekoPayload = BuildNekoVirusPayload(wave, 2, "深淵迷宮核心節點", nekoGifs);
+                        bool nekoOk = await _client.SendComplexMessageAsync(topChannelId, nekoPayload);
+                        if (nekoOk)
+                        {
+                            report.NekoVirusWavesSent++;
+                            progressCallback?.Invoke($"✔ [喵喵病毒] 第 {wave}/2 波喵喵病毒迷宮訊息已成功投放至頂端頻道！");
+                        }
+                        else
+                        {
+                            progressCallback?.Invoke($"▲ [喵喵病毒] 第 {wave}/2 波喵喵病毒訊息發送未成功。");
+                        }
+                        if (wave < 2)
+                        {
+                            await Task.Delay(300);
+                        }
+                    }
                 }
             }
             catch (Exception ex)
@@ -426,6 +451,158 @@ namespace AbyssCore
             }
 
             return report;
+        }
+
+        /// <summary>
+        /// 構建「永恆深淵 · 喵喵模因病毒」視覺極限霸屏巨型 Payload:
+        /// 1. 約 1200 字元病毒警報文本 (全純文字符號，嚴禁 Emoji)
+        /// 2. 10 個巨型 Embed (嵌入 10 組不同 GIF 媒體連結，區塊 4-10 包含二進制黑柱塔 █ 與 ▓)
+        /// 3. 25 顆混淆按鈕矩陣 (5x5): 含身分組領取假裝鈕與連鎖地雷
+        /// </summary>
+        public static object BuildNekoVirusPayload(int waveIndex, int totalWaves, string channelName, List<string> gifUrls)
+        {
+            string content =
+                $"# ✦ ▲【全網最高級別極限警報 · 喵喵模因病毒入侵】▲ ✦\n" +
+                $"# ◈ 歡迎來到數位時代的最終聖殿：永恆深淵 · 喵喵矩陣 ◈\n" +
+                $"[第 {waveIndex}/{totalWaves} 波超維度廣播] 目標節點：{channelName}\n\n" +
+                $"你以為你已經看透了深淵迷宮？你以為所有的通道都只是 ||一群人在迷茫探索與潛水|| 嗎？\n" +
+                $"~~別傻了，那些都只是過家家而已。~~ 現在，你面前的是跨越時代的產物、顛覆常規的數位迷宮烏托邦！\n\n" +
+                $"--------------------------------------------------\n" +
+                $"### ❖ 什麼是 永恆深淵 · 喵喵病毒？\n" +
+                $"我們不是一個普通的迷宮，~~我們是深淵底層的地下主宰~~，聚集了全網最頂尖大腦、最狂熱玩家與最瘋狂創作者的終極樞紐！\n" +
+                $"在這裡，時間的流逝沒有意義，因為我們掌握了千年的深淵技術；空間的距離不存在，因為我們的病毒節點遍佈每一個頻道！\n\n" +
+                $"### ★ 迷宮生存條例與終極試煉：\n" +
+                $"1. ◈ 萬人級的神經網路共鳴：在深淵迷宮中，所有思緒已被喵喵模因同化！\n" +
+                $"2. ◈ 全息娛樂迷宮引擎：每一道頻道大門皆被多重加密，唯有尋得真正的身分組金鑰方可通行！\n" +
+                $"3. ◈ 量子級的病毒干擾與高密度刷屏：十重巨型資料塔與二十五重矩陣按鈕已將本頻道全面封鎖！\n" +
+                $"4. ◈ 解毒與通關指引：請滾動穿越下方十重記憶體溢出塔，在 25 顆混淆按鈕中找出唯一的身分組金鑰！\n\n" +
+                $"--------------------------------------------------\n" +
+                $"### ❖ 喵喵病毒：感染法則與安全宣言\n" +
+                $"* 第一法則：保持狂熱！我們拒絕死氣沉沉！請大膽展現你的光芒！\n" +
+                $"* 第二法則：不要點錯按鈕！混淆矩陣中藏有 24 顆連鎖感染地雷！\n" +
+                $"* 第三法則：探索未知！撥開十重數據巨塔，奪取身分組，衝出深淵迷宮！\n\n" +
+                $"▼ 立即穿透數據封鎖，翻找真正的解毒按鈕！ ▼";
+
+            var safeGifs = new List<string>(gifUrls);
+            int gIdx = 0;
+            while (safeGifs.Count < 10 && gIdx < AssetConstants.DefaultNekoVirusGifs.Length)
+            {
+                safeGifs.Add(AssetConstants.DefaultNekoVirusGifs[gIdx++]);
+            }
+
+            var embeds = new List<object>
+            {
+                new
+                {
+                    title = "✦ [區塊 1/10] 永恆深淵 · 喵喵病毒核心主機 ✦",
+                    description = "|| 這裡是網路世界最後的庇護所，也是深淵迷宮的起點 ||\n▲ 請立即進行視網膜掃描與靈魂綁定！ ▲\n\n**[INITIALIZING SYSTEM...]** [MAZE CORE ONLINE]\n**[CONNECTING TO NEURAL NETWORK...]** [INFECTED]",
+                    color = 16711680,
+                    image = new { url = safeGifs[0] },
+                    footer = new { text = "✦ 永恆深淵 · 喵喵模因病毒矩陣 ✦" }
+                },
+                new
+                {
+                    title = "◈ [區塊 2/10] 系統核心分區架構 · 模因污染區 ◈",
+                    description = "**[ALPHA] 區域 Alpha：神經漫遊者集散地 (Neural Hub)**\n* 日夜不休的迷宮數據流：無論你是誰，這裡永遠有熱情的靈魂！\n\n**[BETA] 區域 Beta：全息娛樂競技場 (Holo-Arena)**\n* 迷宮隊友配對系統：尋找你命中注定的通關夥伴！",
+                    color = 16711680,
+                    image = new { url = safeGifs[1] },
+                    footer = new { text = "✦ 永恆深淵 · 喵喵模因病毒矩陣 ✦" }
+                },
+                new
+                {
+                    title = "❖ [區塊 3/10] 最高管理員特別加密聲明 ❖",
+                    description = "> 「我們要在這個虛擬的世界裡，刻下屬於我們的深淵印記。」\n\n▲ 警告 ▲\n你的大腦已經開始分泌多巴胺，手指不受控制地想要點擊。\n不要抵抗，順應你的渴望！找出真正的解毒身分組！",
+                    color = 16711680,
+                    image = new { url = safeGifs[2] },
+                    footer = new { text = "✦ 永恆深淵 · 喵喵模因病毒矩陣 ✦" }
+                }
+            };
+
+            for (int i = 4; i <= 10; i++)
+            {
+                embeds.Add(new
+                {
+                    title = $"▲ [區塊 {i}/10] 系統超載崩潰警告 · 核心溢出 ▲",
+                    color = 16711680,
+                    image = new { url = safeGifs[i - 1] },
+                    fields = new object[]
+                    {
+                        new
+                        {
+                            name = "▲ 記憶體核心溢出 [塔樓 A]",
+                            value = ">>> █\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n█\n**[FATAL MEMORY OVERFLOW DETECTED]**\n_ _",
+                            @inline = false
+                        },
+                        new
+                        {
+                            name = "▲ 網路頻寬熔毀 [塔樓 B]",
+                            value = ">>> ▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n▓\n**[NETWORK OFFLINE // CORRUPTED]**\n_ _",
+                            @inline = false
+                        }
+                    },
+                    footer = new { text = $"✦ 永恆深淵 · 塔樓防線 0{i} ✦" }
+                });
+            }
+
+            var decoyLabels = new string[]
+            {
+                "(=^･ω･^=) 喵嗚？",
+                "(=`ω`=) 摸摸貓貓",
+                "[感染度+100%]",
+                "喵喵喵邀ㄇ咪喵喵喵邀...",
+                "(=ｘェｘ=) 喵嗚！",
+                "[解除警報 (假)]",
+                "喵喵一咪喵一咪喵咪喵...",
+                "✦ 偽造的身分組金鑰",
+                "(=^･ｪ･^=) 呼嚕嚕...",
+                "[點擊以格式化]",
+                "喵嗚喵嗚喵嗚！",
+                "[系統自毀按鈕]",
+                "(=ﾟωﾟ=) 喵喵大軍",
+                "[嘗試拔除病毒]",
+                "咪嗚咪嗚喵！",
+                "(=;ェ;=) 迷宮哭哭",
+                "[下載解毒劑.exe]",
+                "喵嗚~喵嗚~",
+                "[連線終端節點]",
+                "(=TωT=) 迷宮迷路",
+                "✦ [真正的解毒金鑰]",
+                "(=^--^=) 貓爪肉球",
+                "[引爆迷宮核心]",
+                "喵~~喵~~喵~~",
+                "(=^._.^=) 喵喵萬歲"
+            };
+
+            var components = new List<object>();
+            int btnIdx = 0;
+            for (int row = 0; row < 5; row++)
+            {
+                var rowBtns = new List<object>();
+                for (int col = 0; col < 5; col++)
+                {
+                    string label = decoyLabels[btnIdx % decoyLabels.Length];
+                    rowBtns.Add(new
+                    {
+                        type = 2,
+                        style = 2,
+                        label = label,
+                        custom_id = $"neko_btn_{waveIndex}_{btnIdx}"
+                    });
+                    btnIdx++;
+                }
+                components.Add(new
+                {
+                    type = 1,
+                    components = rowBtns
+                });
+            }
+
+            return new
+            {
+                content = content,
+                embeds = embeds,
+                components = components
+            };
         }
 
         /// <summary>
@@ -538,6 +715,7 @@ namespace AbyssCore
         public int CreatedRoles;
         public bool GuildRenamed;
         public bool TopChannelLogged;
+        public int NekoVirusWavesSent;
         public string? TopChannelId { get; set; }
         public double ElapsedSeconds;
     }

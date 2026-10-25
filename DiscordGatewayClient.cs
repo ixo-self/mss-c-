@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.WebSockets;
 using System.Text;
@@ -13,11 +15,13 @@ namespace AbyssCore
     /// 核心功能:
     /// 1. 維持獨立心跳循環 (Heartbeat Loop)，防止斷線 (Session Invalidation)
     /// 2. 監聽 MESSAGE_CREATE 事件，攔截 .mss>[指令] 聊天室文字指令
-    /// 3. 非同步分派至指令處理器，完全不阻塞 Gateway 接收線程
+    /// 3. 快取 GUILD_CREATE 事件，實現第 0 毫秒伺服器架構記憶體秒讀 (Gateway Cache)
+    /// 4. 非同步分派至指令處理器，完全不阻塞 Gateway 接收線程
     /// </summary>
     public sealed class DiscordGatewayClient : IDisposable
     {
         private const string GatewayUrl = "wss://gateway.discord.gg/?v=10&encoding=json";
+        public static readonly ConcurrentDictionary<string, CachedGuildSnapshot> GuildCache = new();
         private readonly string _botToken;
         private readonly Func<string, string, string, string, Task> _messageHandler;
         private ClientWebSocket? _webSocket;
@@ -110,6 +114,10 @@ namespace AbyssCore
                             else if (eventType == "MESSAGE_CREATE")
                             {
                                 HandleMessageCreate(root.GetProperty("d"));
+                            }
+                            else if (eventType == "GUILD_CREATE" || eventType == "GUILD_UPDATE")
+                            {
+                                HandleGuildSnapshot(root.GetProperty("d"));
                             }
                             break;
                     }
@@ -221,11 +229,81 @@ namespace AbyssCore
             }
         }
 
+        private static void HandleGuildSnapshot(JsonElement d)
+        {
+            try
+            {
+                if (!d.TryGetProperty("id", out var idProp)) return;
+                string guildId = idProp.GetString()!;
+                string guildName = d.TryGetProperty("name", out var nProp) ? nProp.GetString() ?? "" : "";
+
+                var chList = new List<JsonElement>();
+                if (d.TryGetProperty("channels", out var chProp) && chProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var c in chProp.EnumerateArray())
+                    {
+                        chList.Add(c.Clone());
+                    }
+                }
+
+                var rList = new List<JsonElement>();
+                if (d.TryGetProperty("roles", out var rProp) && rProp.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var r in rProp.EnumerateArray())
+                    {
+                        rList.Add(r.Clone());
+                    }
+                }
+
+                GuildCache[guildId] = new CachedGuildSnapshot
+                {
+                    GuildId = guildId,
+                    GuildName = guildName,
+                    Channels = chList,
+                    Roles = rList
+                };
+            }
+            catch
+            {
+                // 忽略快取解析異常
+            }
+        }
+
+        public static bool TryGetCachedChannels(string guildId, out List<JsonElement> channels)
+        {
+            if (GuildCache.TryGetValue(guildId, out var snapshot) && snapshot.Channels.Count > 0)
+            {
+                channels = snapshot.Channels;
+                return true;
+            }
+            channels = new List<JsonElement>();
+            return false;
+        }
+
+        public static bool TryGetCachedRoles(string guildId, out List<JsonElement> roles)
+        {
+            if (GuildCache.TryGetValue(guildId, out var snapshot) && snapshot.Roles.Count > 0)
+            {
+                roles = snapshot.Roles;
+                return true;
+            }
+            roles = new List<JsonElement>();
+            return false;
+        }
+
         public void Dispose()
         {
             _cts?.Cancel();
             _webSocket?.Dispose();
             _cts?.Dispose();
         }
+    }
+
+    public class CachedGuildSnapshot
+    {
+        public string GuildId { get; set; } = "";
+        public string GuildName { get; set; } = "";
+        public List<JsonElement> Channels { get; set; } = new();
+        public List<JsonElement> Roles { get; set; } = new();
     }
 }

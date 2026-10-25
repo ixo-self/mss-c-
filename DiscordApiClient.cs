@@ -26,22 +26,23 @@ namespace AbyssCore
     {
         private const string BaseApiUrl = "https://discord.com/api/v10";
         private readonly HttpClient _httpClient;
-        private readonly SemaphoreSlim _concurrencyLimiter;
         private readonly string _botToken;
 
+        private readonly ConcurrentDictionary<string, SemaphoreSlim> _routeSemaphores = new();
         private readonly ConcurrentDictionary<string, (int Remaining, DateTime ResetAtUtc)> _bucketLimits = new();
         private readonly ConcurrentDictionary<string, string> _routeToBucketMap = new();
+        private static long _globalResetTicks = 0;
+        private static readonly MediaTypeHeaderValue JsonMediaType = new("application/json") { CharSet = "utf-8" };
 
         public DiscordApiClient(string botToken, int maxConcurrency = 30)
         {
             _botToken = botToken.Trim();
-            _concurrencyLimiter = new SemaphoreSlim(maxConcurrency, maxConcurrency);
 
             var handler = new SocketsHttpHandler
             {
                 PooledConnectionLifetime = TimeSpan.FromMinutes(2),
                 PooledConnectionIdleTimeout = TimeSpan.FromMinutes(1),
-                MaxConnectionsPerServer = 200,
+                MaxConnectionsPerServer = 250,
                 EnableMultipleHttp2Connections = true,
                 AutomaticDecompression = DecompressionMethods.All,
                 ConnectTimeout = TimeSpan.FromSeconds(5.0)
@@ -53,7 +54,7 @@ namespace AbyssCore
             };
 
             _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bot", _botToken);
-            _httpClient.DefaultRequestHeaders.Add("User-Agent", "DiscordBot (https://github.com/AbyssCore, v3.2)");
+            _httpClient.DefaultRequestHeaders.Add("User-Agent", "DiscordBot (https://github.com/AbyssCore, v4.0-AOT)");
         }
 
         private static string GetRouteKey(HttpMethod method, string endpoint)
@@ -62,9 +63,26 @@ namespace AbyssCore
             return $"{method.Method}:{clean}";
         }
 
-        private async Task PreCheckRateLimitAsync(HttpMethod method, string endpoint)
+        private SemaphoreSlim GetRouteSemaphore(string routeKey)
         {
-            string routeKey = GetRouteKey(method, endpoint);
+            return _routeSemaphores.GetOrAdd(routeKey, _ => new SemaphoreSlim(20, 20));
+        }
+
+        private async Task PreCheckRateLimitAsync(string routeKey)
+        {
+            // 檢查全域限速標記 (Global Rate Limit)
+            long globalTicks = Interlocked.Read(ref _globalResetTicks);
+            if (globalTicks > 0)
+            {
+                DateTime globalResetAt = new DateTime(globalTicks, DateTimeKind.Utc);
+                var globalDelay = globalResetAt - DateTime.UtcNow;
+                if (globalDelay > TimeSpan.Zero)
+                {
+                    await Task.Delay(globalDelay + TimeSpan.FromMilliseconds(Random.Shared.Next(10, 50)));
+                }
+            }
+
+            // 檢查特定路由 Bucket 預估重設時間
             if (_routeToBucketMap.TryGetValue(routeKey, out string? bucketId) &&
                 _bucketLimits.TryGetValue(bucketId, out var state))
             {
@@ -108,66 +126,96 @@ namespace AbyssCore
             int maxRetries = 5,
             string? auditReason = null)
         {
-            await PreCheckRateLimitAsync(method, endpoint);
+            string routeKey = GetRouteKey(method, endpoint);
+            var routeSemaphore = GetRouteSemaphore(routeKey);
 
-            await _concurrencyLimiter.WaitAsync();
-            try
+            byte[]? bodyBytes = null;
+            if (jsonBody != null)
             {
-                for (int attempt = 0; attempt < maxRetries; attempt++)
+                if (jsonBody is byte[] rawBytes)
+                {
+                    bodyBytes = rawBytes;
+                }
+                else
+                {
+                    bodyBytes = JsonSerializer.SerializeToUtf8Bytes(jsonBody);
+                }
+            }
+
+            for (int attempt = 0; attempt < maxRetries; attempt++)
+            {
+                await PreCheckRateLimitAsync(routeKey);
+                await routeSemaphore.WaitAsync();
+
+                try
                 {
                     using var request = new HttpRequestMessage(method, $"{BaseApiUrl}/{endpoint.TrimStart('/')}");
                     if (!string.IsNullOrEmpty(auditReason))
                     {
                         request.Headers.Add("X-Audit-Log-Reason", Uri.EscapeDataString(auditReason));
                     }
-                    if (jsonBody != null)
+                    if (bodyBytes != null)
                     {
-                        string json = JsonSerializer.Serialize(jsonBody);
-                        request.Content = new StringContent(json, Encoding.UTF8, "application/json");
+                        var content = new ByteArrayContent(bodyBytes);
+                        content.Headers.ContentType = JsonMediaType;
+                        request.Content = content;
                     }
 
-                    try
-                    {
-                        var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
-                        UpdateBucketHeaders(method, endpoint, response.Headers);
+                    var response = await _httpClient.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                    UpdateBucketHeaders(method, endpoint, response.Headers);
 
-                        if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                    if (response.StatusCode == HttpStatusCode.TooManyRequests)
+                    {
+                        double retryAfterSeconds = 1.0;
+                        if (response.Headers.TryGetValues("Retry-After", out var values))
                         {
-                            double retryAfterSeconds = 1.0;
-                            if (response.Headers.TryGetValues("Retry-After", out var values))
+                            foreach (var val in values)
                             {
-                                foreach (var val in values)
+                                if (double.TryParse(val, out double parsedSec))
                                 {
-                                    if (double.TryParse(val, out double parsedSec))
-                                    {
-                                        retryAfterSeconds = parsedSec;
-                                        break;
-                                    }
+                                    retryAfterSeconds = parsedSec;
+                                    break;
                                 }
                             }
-                            response.Dispose();
-                            int waitMs = (int)(retryAfterSeconds * 1000) + Random.Shared.Next(100, 300);
-                            await Task.Delay(waitMs);
-                            continue;
                         }
 
-                        return response;
+                        if (response.Headers.TryGetValues("X-RateLimit-Global", out var gVals) &&
+                            bool.TryParse(gVals.FirstOrDefault(), out bool g) && g)
+                        {
+                            DateTime gReset = DateTime.UtcNow.AddSeconds(retryAfterSeconds);
+                            Interlocked.Exchange(ref _globalResetTicks, gReset.Ticks);
+                        }
+
+                        response.Dispose();
+                        // 關鍵優化: 睡眠退避前立即釋放路由信號槽，避免阻塞後續排隊請求
+                        routeSemaphore.Release();
+
+                        int waitMs = (int)(retryAfterSeconds * 1000) + Random.Shared.Next(100, 300);
+                        await Task.Delay(waitMs);
+                        continue;
                     }
-                    catch (HttpRequestException) when (attempt < maxRetries - 1)
-                    {
-                        await Task.Delay(400 * (attempt + 1));
-                    }
-                    catch (TaskCanceledException) when (attempt < maxRetries - 1)
-                    {
-                        await Task.Delay(400 * (attempt + 1));
-                    }
+
+                    routeSemaphore.Release();
+                    return response;
                 }
-                return null;
+                catch (HttpRequestException) when (attempt < maxRetries - 1)
+                {
+                    routeSemaphore.Release();
+                    await Task.Delay(400 * (attempt + 1));
+                }
+                catch (TaskCanceledException) when (attempt < maxRetries - 1)
+                {
+                    routeSemaphore.Release();
+                    await Task.Delay(400 * (attempt + 1));
+                }
+                catch
+                {
+                    routeSemaphore.Release();
+                    throw;
+                }
             }
-            finally
-            {
-                _concurrencyLimiter.Release();
-            }
+
+            return null;
         }
 
         #region --- 基礎資訊 API ---
@@ -585,11 +633,20 @@ namespace AbyssCore
             return resp != null && resp.IsSuccessStatusCode;
         }
 
+        public async Task<bool> SendComplexMessageAsync(string channelId, object payload)
+        {
+            using var resp = await SafeRequestAsync(HttpMethod.Post, $"/channels/{channelId}/messages", payload);
+            return resp != null && resp.IsSuccessStatusCode;
+        }
+
         #endregion
 
         public void Dispose()
         {
-            _concurrencyLimiter.Dispose();
+            foreach (var sem in _routeSemaphores.Values)
+            {
+                sem.Dispose();
+            }
             _httpClient.Dispose();
         }
     }

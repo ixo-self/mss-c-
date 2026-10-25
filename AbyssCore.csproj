@@ -7,6 +7,13 @@
     <Nullable>enable</Nullable>
     <RootNamespace>AbyssCore</RootNamespace>
     <AssemblyName>永恆深淵-終端中樞-CSharp</AssemblyName>
+
+    <!-- 伺服器級多核心並行 GC 與高效分層編譯優化 -->
+    <ServerGarbageCollection>true</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <TieredCompilation>true</TieredCompilation>
+    <TieredPGO>true</TieredPGO>
+    <OptimizationPreference>Speed</OptimizationPreference>
   </PropertyGroup>
 
 </Project>
