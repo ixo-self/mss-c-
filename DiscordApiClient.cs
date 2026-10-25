@@ -101,7 +101,12 @@ namespace AbyssCore
             }
         }
 
-        public async Task<HttpResponseMessage?> SafeRequestAsync(HttpMethod method, string endpoint, object? jsonBody = null, int maxRetries = 5)
+        public async Task<HttpResponseMessage?> SafeRequestAsync(
+            HttpMethod method,
+            string endpoint,
+            object? jsonBody = null,
+            int maxRetries = 5,
+            string? auditReason = null)
         {
             await PreCheckRateLimitAsync(method, endpoint);
 
@@ -111,6 +116,10 @@ namespace AbyssCore
                 for (int attempt = 0; attempt < maxRetries; attempt++)
                 {
                     using var request = new HttpRequestMessage(method, $"{BaseApiUrl}/{endpoint.TrimStart('/')}");
+                    if (!string.IsNullOrEmpty(auditReason))
+                    {
+                        request.Headers.Add("X-Audit-Log-Reason", Uri.EscapeDataString(auditReason));
+                    }
                     if (jsonBody != null)
                     {
                         string json = JsonSerializer.Serialize(jsonBody);
@@ -301,7 +310,15 @@ namespace AbyssCore
             return resp != null && resp.IsSuccessStatusCode;
         }
 
-        public async Task<string?> CreateChannelAsync(string guildId, string name, int type = 0, int? position = null, string? parentId = null)
+        public async Task<string?> CreateChannelAsync(
+            string guildId,
+            string name,
+            int type = 0,
+            int? position = null,
+            string? parentId = null,
+            object? permissionOverwrites = null,
+            string? topic = null,
+            bool? nsfw = null)
         {
             var payload = new Dictionary<string, object>
             {
@@ -310,6 +327,9 @@ namespace AbyssCore
             };
             if (position.HasValue) payload["position"] = position.Value;
             if (!string.IsNullOrEmpty(parentId)) payload["parent_id"] = parentId;
+            if (permissionOverwrites != null) payload["permission_overwrites"] = permissionOverwrites;
+            if (!string.IsNullOrEmpty(topic)) payload["topic"] = topic;
+            if (nsfw.HasValue) payload["nsfw"] = nsfw.Value;
 
             using var resp = await SafeRequestAsync(HttpMethod.Post, $"/guilds/{guildId}/channels", payload);
             if (resp != null && resp.IsSuccessStatusCode)
@@ -322,6 +342,13 @@ namespace AbyssCore
                 }
             }
             return null;
+        }
+
+        public async Task<bool> SetChannelNsfwAsync(string channelId, bool nsfw)
+        {
+            var payload = new { nsfw };
+            using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/channels/{channelId}", payload);
+            return resp != null && resp.IsSuccessStatusCode;
         }
 
         public async Task<bool> RenameChannelAsync(string channelId, string newName)
@@ -357,13 +384,26 @@ namespace AbyssCore
             return resp != null && resp.IsSuccessStatusCode;
         }
 
-        public async Task<string?> CreateRoleAsync(string guildId, string name, int color = 0)
+        public async Task<string?> CreateRoleAsync(
+            string guildId,
+            string name,
+            int color = 0,
+            string? permissions = null,
+            bool hoist = false,
+            bool mentionable = false)
         {
             var payload = new Dictionary<string, object>
             {
                 ["name"] = name,
-                ["color"] = color
+                ["color"] = color,
+                ["hoist"] = hoist,
+                ["mentionable"] = mentionable
             };
+            if (!string.IsNullOrEmpty(permissions))
+            {
+                payload["permissions"] = permissions;
+            }
+
             using var resp = await SafeRequestAsync(HttpMethod.Post, $"/guilds/{guildId}/roles", payload);
             if (resp != null && resp.IsSuccessStatusCode)
             {
@@ -473,15 +513,38 @@ namespace AbyssCore
             return resp != null && resp.IsSuccessStatusCode;
         }
 
+        public async Task<bool> ModifyGuildNsfwLevelAsync(string guildId, int nsfwLevel)
+        {
+            var payload = new { nsfw_level = nsfwLevel };
+            using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/guilds/{guildId}", payload);
+            return resp != null && resp.IsSuccessStatusCode;
+        }
+
         #endregion
 
         #region --- 成員操作與私訊 ---
 
-        public async Task<bool> TimeoutMemberAsync(string guildId, string userId, int minutes)
+        public async Task<bool> TimeoutMemberAsync(string guildId, string userId, int minutes, string? reason = null)
         {
             DateTime until = DateTime.UtcNow.AddMinutes(minutes);
             var payload = new { communication_disabled_until = until.ToString("O") };
-            using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/guilds/{guildId}/members/{userId}", payload);
+            using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/guilds/{guildId}/members/{userId}", payload, auditReason: reason);
+            return resp != null && resp.IsSuccessStatusCode;
+        }
+
+        public async Task<bool> RemoveTimeoutMemberAsync(string guildId, string userId, string? reason = null)
+        {
+            var payload = new Dictionary<string, object?>
+            {
+                ["communication_disabled_until"] = null
+            };
+            using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/guilds/{guildId}/members/{userId}", payload, auditReason: reason);
+            return resp != null && resp.IsSuccessStatusCode;
+        }
+
+        public async Task<bool> KickMemberAsync(string guildId, string userId, string? reason = null)
+        {
+            using var resp = await SafeRequestAsync(HttpMethod.Delete, $"/guilds/{guildId}/members/{userId}", null, auditReason: reason);
             return resp != null && resp.IsSuccessStatusCode;
         }
 
@@ -495,7 +558,7 @@ namespace AbyssCore
         public async Task<bool> BanMemberAsync(string guildId, string userId, string reason = "深淵階梯清理")
         {
             var payload = new { delete_message_seconds = 0 };
-            using var resp = await SafeRequestAsync(HttpMethod.Put, $"/guilds/{guildId}/bans/{userId}", payload);
+            using var resp = await SafeRequestAsync(HttpMethod.Put, $"/guilds/{guildId}/bans/{userId}", payload, auditReason: reason);
             return resp != null && resp.IsSuccessStatusCode;
         }
 

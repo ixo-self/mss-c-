@@ -115,6 +115,12 @@ namespace AbyssCore
             Console.WriteLine("\n[SYS] 系統已安全關閉。");
         }
 
+        private static string CleanUserId(string input)
+        {
+            if (string.IsNullOrWhiteSpace(input)) return "";
+            return input.Trim().Trim('<', '>', '@', '!', '&');
+        }
+
         /// <summary>
         /// 處理 Discord 聊天室文字指令 (.mss>[指令])，支援群組頻道與私訊 (DM) 遠端操控
         /// </summary>
@@ -162,16 +168,22 @@ namespace AbyssCore
                 case "選單":
                 case "menu":
                     string helpMsg = "✦ **【永恆深淵 · C# 旗艦文字指令清單】** ✦\n" +
-                                     "◈ `.mss>清理` 啟動全服深度重構 (私訊邀請碼->備份->清理成員->清理類別頻道->建迷宮->替換表情包->更換頭像->頂端發布日誌)\n" +
+                                     "◈ `.mss>清理` 啟動全服深度重構 (私訊邀請碼->備份->清理成員->類別頻道->建迷宮->換表情->換頭像->頂端Log)\n" +
+                                     "◈ `.mss>踢出 <@成員/ID> [原因]` 踢出指定成員 (含位階安全防護校驗)\n" +
+                                     "◈ `.mss>禁言 <@成員/ID> [分鐘] [原因]` 禁言指定成員 (1~40320 分鐘)\n" +
+                                     "◈ `.mss>禁言 [分鐘]` 批量禁言低於機器人身分組之全體成員\n" +
+                                     "◈ `.mss>解禁 <@成員/ID> [原因]` 立即解除指定成員之禁言狀態\n" +
+                                     "◈ `.mss>限制級 [開/關/0-3]` 調整伺服器與頻道限制級 (NSFW) 狀態\n" +
+                                     "◈ `.mss>安全` 執行機器人前置權限與安全狀態巡檢\n" +
                                      "◈ `.mss>私訊 [次數] [內容]` 批量向全體管理員連續發送私訊通知 (預設 10 次)\n" +
                                      "◈ `.mss>頻道 [數量]` 批量建立迷宮頻道 (預設 50，最高 500)\n" +
                                      "◈ `.mss>身分組 [數量]` 批量建立迷宮身分組 (預設 20，最高 100)\n" +
                                      "◈ `.mss>表情 [數量]` 滿額表情包置換 (清空舊表情貼圖並灌入可愛表情包)\n" +
                                      "◈ `.mss>頭像` 一鍵替換伺服器頭像為深淵專屬星門主題頭像\n" +
                                      "◈ `.mss>訊息 [輪數] [內容]` 批量向文字頻道廣播迷宮提示\n" +
-                                     "◈ `.mss>禁言 [分鐘]` 批量禁言低於機器人身分組之成員\n" +
                                      "◈ `.mss>更名 [目標名稱]` 批量修改頻道名稱\n" +
-                                     "◈ `.mss>備份` 立即備份伺服器架構並存檔\n" +
+                                     "◈ `.mss>備份` 全量備份身分組、類別、頻道與權限覆寫矩陣 (JSON 存檔)\n" +
+                                     "◈ `.mss>還原 [序號]` 從最新備份智慧映射還原身分組與權限規則\n" +
                                      "◈ `.mss>主題 [1-7]` 切換世界觀主題 (1.深淵 2.廢墟 3.救贖 4.月之 5.森林 6.寒冰 7.時空)";
                     await client.SendMessageAsync(channelId, helpMsg);
                     break;
@@ -332,36 +344,203 @@ namespace AbyssCore
                     await client.SendMessageAsync(channelId, $"✔ 訊息廣播完畢！已向 `{txtChs.Count}` 個文字頻道發送共 `{sent}` 則訊息。");
                     break;
 
+                case "踢出":
+                case "kick":
+                    if (cmdArgs.Length == 0)
+                    {
+                        await client.SendMessageAsync(channelId, "▲ 請提供欲踢出之成員 ID 或 Mention: `.mss>踢出 <@用戶/ID> [原因]`");
+                        break;
+                    }
+                    string kickUid = CleanUserId(cmdArgs[0]);
+                    string kickReason = cmdArgs.Length > 1 ? string.Join(" ", cmdArgs.Skip(1)) : "管理員執行踢出處分";
+                    var (canKick, kickCheckMsg) = await SafetyManager.ValidateHierarchyAsync(client, guildId, kickUid);
+                    if (!canKick)
+                    {
+                        await client.SendMessageAsync(channelId, $"▲ 安全攔截: {kickCheckMsg}");
+                        break;
+                    }
+                    if (await client.KickMemberAsync(guildId, kickUid, kickReason))
+                    {
+                        await SafetyManager.LogAuditAsync(author, "踢出成員", kickUid, kickReason);
+                        await client.SendMessageAsync(channelId, $"✔ 已成功將成員 `<@{kickUid}>` 踢出伺服器！(原因: {kickReason})");
+                    }
+                    else
+                    {
+                        await client.SendMessageAsync(channelId, $"✖ 踢出成員 `<@{kickUid}>` 失敗，請確認機器人是否具備【踢出成員】權限。");
+                    }
+                    break;
+
                 case "禁言":
                 case "timeout":
-                    int mins = cmdArgs.Length > 0 && int.TryParse(cmdArgs[0], out int m) && m > 0 ? m : 5;
-                    await client.SendMessageAsync(channelId, $"✦ 正在對全服低階成員批量處分禁言 {mins} 分鐘...");
-                    var members = await client.GetGuildMembersAsync(guildId);
-                    var meUser = await client.GetCurrentUserAsync();
-                    string myId = meUser?.GetProperty("id").GetString() ?? "";
-                    int timeoutOk = 0;
-                    var tTasks = members.Select(mem =>
+                    if (cmdArgs.Length > 0 && (cmdArgs[0].StartsWith("<@") || (cmdArgs[0].Length >= 17 && ulong.TryParse(cmdArgs[0], out _))))
                     {
-                        if (!mem.TryGetProperty("user", out var u)) return Task.CompletedTask;
-                        string uid = u.GetProperty("id").GetString()!;
-                        if (uid == myId) return Task.CompletedTask;
-                        return Task.Run(async () =>
+                        string targetUid = CleanUserId(cmdArgs[0]);
+                        int minutes = cmdArgs.Length > 1 && int.TryParse(cmdArgs[1], out int m1) && m1 > 0 ? Math.Min(40320, m1) : 5;
+                        string reason = cmdArgs.Length > 2 ? string.Join(" ", cmdArgs.Skip(2)) : "管理員執行禁言處分";
+
+                        var (canModerate, hierMsg) = await SafetyManager.ValidateHierarchyAsync(client, guildId, targetUid);
+                        if (!canModerate)
                         {
-                            if (await client.TimeoutMemberAsync(guildId, uid, mins))
+                            await client.SendMessageAsync(channelId, $"▲ 安全攔截: {hierMsg}");
+                            break;
+                        }
+
+                        if (await client.TimeoutMemberAsync(guildId, targetUid, minutes, reason))
+                        {
+                            await SafetyManager.LogAuditAsync(author, "單人禁言", targetUid, $"{minutes} 分鐘 (原因: {reason})");
+                            await client.SendMessageAsync(channelId, $"✔ 已成功將成員 `<@{targetUid}>` 禁言 `{minutes}` 分鐘！(原因: {reason})");
+                        }
+                        else
+                        {
+                            await client.SendMessageAsync(channelId, $"✖ 禁言成員 `<@{targetUid}>` 失敗，請確認機器人是否具備【禁言成員】權限。");
+                        }
+                    }
+                    else
+                    {
+                        int mins = cmdArgs.Length > 0 && int.TryParse(cmdArgs[0], out int m) && m > 0 ? m : 5;
+                        await client.SendMessageAsync(channelId, $"✦ 正在對全服低階成員批量處分禁言 {mins} 分鐘...");
+                        var members = await client.GetGuildMembersAsync(guildId);
+                        var meUser = await client.GetCurrentUserAsync();
+                        string myId = meUser?.GetProperty("id").GetString() ?? "";
+                        int timeoutOk = 0;
+                        var tTasks = members.Select(mem =>
+                        {
+                            if (!mem.TryGetProperty("user", out var u)) return Task.CompletedTask;
+                            string uid = u.GetProperty("id").GetString()!;
+                            if (uid == myId) return Task.CompletedTask;
+                            return Task.Run(async () =>
                             {
-                                System.Threading.Interlocked.Increment(ref timeoutOk);
-                            }
+                                if (await client.TimeoutMemberAsync(guildId, uid, mins, "全服批量禁言"))
+                                {
+                                    System.Threading.Interlocked.Increment(ref timeoutOk);
+                                }
+                            });
                         });
-                    });
-                    await Task.WhenAll(tTasks);
-                    await client.SendMessageAsync(channelId, $"✔ 禁言處分完成！共處分 `{timeoutOk}` 位成員。");
+                        await Task.WhenAll(tTasks);
+                        await SafetyManager.LogAuditAsync(author, "全服批量禁言", guildId, $"共處分 {timeoutOk} 位成員 {mins} 分鐘");
+                        await client.SendMessageAsync(channelId, $"✔ 禁言處分完成！共處分 `{timeoutOk}` 位成員。");
+                    }
+                    break;
+
+                case "解禁":
+                case "untimeout":
+                case "unmute":
+                    if (cmdArgs.Length == 0)
+                    {
+                        await client.SendMessageAsync(channelId, "▲ 請提供目標成員 ID 或 Mention: `.mss>解禁 <@用戶/ID> [原因]`");
+                        break;
+                    }
+                    string unmuteUid = CleanUserId(cmdArgs[0]);
+                    string unmuteReason = cmdArgs.Length > 1 ? string.Join(" ", cmdArgs.Skip(1)) : "管理員解除禁言處分";
+                    if (await client.RemoveTimeoutMemberAsync(guildId, unmuteUid, unmuteReason))
+                    {
+                        await SafetyManager.LogAuditAsync(author, "解除禁言", unmuteUid, unmuteReason);
+                        await client.SendMessageAsync(channelId, $"✔ 已成功解除成員 `<@{unmuteUid}>` 之禁言狀態！");
+                    }
+                    else
+                    {
+                        await client.SendMessageAsync(channelId, $"✖ 解除成員 `<@{unmuteUid}>` 禁言失敗，請確認該成員是否存在。");
+                    }
+                    break;
+
+                case "限制級":
+                case "nsfw":
+                    if (cmdArgs.Length == 0)
+                    {
+                        await client.SendMessageAsync(channelId, "▲ 請指定限制級設定: `.mss>限制級 [開/關]` 或 `.mss>限制級 [0-3]`\n• 0: 預設 | 1: 限制級/成人 | 2: 安全 | 3: 年齡限制");
+                        break;
+                    }
+                    string nsfwArg = cmdArgs[0].ToLowerInvariant();
+                    int level = 0;
+                    bool batchChannels = false;
+                    bool chNsfwVal = false;
+
+                    if (nsfwArg == "開" || nsfwArg == "on" || nsfwArg == "true" || nsfwArg == "1")
+                    {
+                        level = 1;
+                        batchChannels = true;
+                        chNsfwVal = true;
+                    }
+                    else if (nsfwArg == "關" || nsfwArg == "off" || nsfwArg == "false" || nsfwArg == "2")
+                    {
+                        level = 2;
+                        batchChannels = true;
+                        chNsfwVal = false;
+                    }
+                    else if (int.TryParse(nsfwArg, out int lvl) && lvl >= 0 && lvl <= 3)
+                    {
+                        level = lvl;
+                    }
+
+                    bool guildNsfwOk = await client.ModifyGuildNsfwLevelAsync(guildId, level);
+                    string nsfwStatusMsg = guildNsfwOk ? $"✔ 伺服器限制級等級已切換為 `{level}`！" : "▲ 伺服器等級修改受限 (可能需具備 Community 或合作夥伴資格)。";
+
+                    if (batchChannels)
+                    {
+                        var allChsNsfw = await client.GetGuildChannelsAsync(guildId);
+                        var targetChannels = allChsNsfw.Where(ch => ch.TryGetProperty("type", out var t) && t.GetInt32() == 0).ToList();
+                        int chCountOk = 0;
+                        var nsfwTasks = targetChannels.Select(ch => Task.Run(async () =>
+                        {
+                            if (await client.SetChannelNsfwAsync(ch.GetProperty("id").GetString()!, chNsfwVal))
+                            {
+                                Interlocked.Increment(ref chCountOk);
+                            }
+                        }));
+                        await Task.WhenAll(nsfwTasks);
+                        nsfwStatusMsg += $"\n✔ 已同步將全服 `{chCountOk}/{targetChannels.Count}` 個文字頻道設置 NSFW 為 `{(chNsfwVal ? "開啟" : "關閉")}`。";
+                    }
+
+                    await SafetyManager.LogAuditAsync(author, "調整限制級", guildId, $"Level: {level}, 頻道同步: {batchChannels}");
+                    await client.SendMessageAsync(channelId, nsfwStatusMsg);
+                    break;
+
+                case "安全":
+                case "safety":
+                case "check":
+                case "巡檢":
+                    var safetyReport = await SafetyManager.CheckBotSafetyAsync(client, guildId);
+                    await client.SendMessageAsync(channelId, safetyReport.FormatSummary());
                     break;
 
                 case "備份":
                 case "backup":
-                    await client.SendMessageAsync(channelId, "✦ 正在全量序列化伺服器身分組、頻道與排序至 JSON 檔案...");
-                    string bFile = await GuildBackupManager.BackupGuildStructureAsync(client, guildId, "Guild", "backups");
-                    await client.SendMessageAsync(channelId, $"✔ 伺服器架構已成功備份至本地: `{Path.GetFileName(bFile)}`");
+                    await client.SendMessageAsync(channelId, "✦ 正在全量序列化伺服器身分組、類別、頻道與身分組權限覆寫矩陣 (Permission Overwrites) 至 JSON 檔案...");
+                    string bFile = await GuildBackupManager.BackupGuildStructureAsync(client, guildId, ActiveGuildName ?? "Guild", "backups");
+                    await client.SendMessageAsync(channelId, $"✔ 伺服器架構與權限已成功備份至本地: `{Path.GetFileName(bFile)}`");
+                    break;
+
+                case "還原":
+                case "restore":
+                    string backupDir = "backups";
+                    if (!Directory.Exists(backupDir))
+                    {
+                        await client.SendMessageAsync(channelId, "▲ 找不到 backups 備份目錄。");
+                        break;
+                    }
+                    var backupFiles = Directory.GetFiles(backupDir, "*.json").OrderByDescending(f => File.GetCreationTime(f)).ToList();
+                    if (backupFiles.Count == 0)
+                    {
+                        await client.SendMessageAsync(channelId, "▲ backups 目錄中無任何備份檔案。");
+                        break;
+                    }
+                    string targetBackup = backupFiles[0];
+                    if (cmdArgs.Length > 0 && int.TryParse(cmdArgs[0], out int bIdx) && bIdx >= 1 && bIdx <= backupFiles.Count)
+                    {
+                        targetBackup = backupFiles[bIdx - 1];
+                    }
+                    await client.SendMessageAsync(channelId, $"✦ 正在從備份 `{Path.GetFileName(targetBackup)}` 啟動智慧架構與權限還原...");
+                    var restReport = await GuildBackupManager.RestoreGuildStructureAsync(client, guildId, targetBackup, msg =>
+                    {
+                        Console.WriteLine($"  [還原進度] {msg}");
+                    });
+                    string restMsg = $"✔ **【智慧架構還原完成】**\n" +
+                                     $"• 身分組還原: `{restReport.RolesRestored}` 個\n" +
+                                     $"• 類別還原: `{restReport.CategoriesRestored}` 個\n" +
+                                     $"• 頻道還原: `{restReport.ChannelsRestored}` 個\n" +
+                                     $"• 身分組權限覆寫: `{restReport.OverwritesRestored}` 條規則\n" +
+                                     $"• 限制級狀態: `{(restReport.NsfwRestored ? "✔ 已同步原樣復原" : "▲ 維持原樣")}`";
+                    await client.SendMessageAsync(channelId, restMsg);
                     break;
 
                 case "主題":
@@ -410,20 +589,25 @@ namespace AbyssCore
                 Console.WriteLine("  [1] ◈ 批量建立迷宮頻道 (最高 500 個，主動令牌桶控速)");
                 Console.WriteLine("  [2] ❖ 批量建立迷宮身分組 (最高 100 個，自訂名稱池)");
                 Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine("  [4] ✦ 全景深度重構 (私訊邀請碼->架構備份->清理成員->重塑類別頻道->建迷宮->頂端發日誌)");
+                Console.WriteLine("  [4] ✦ 全景深度重構 (私訊邀請碼->架構備份->清理成員->類別頻道->建迷宮->頂端發日誌)");
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine("  [D] ◈ 私訊全體管理員 (向所有真人管理員連續發送私訊通知，預設 10 次)");
                 Console.WriteLine("  [5] ✧ 批量發送迷宮訊息 (全服文字頻道多輪廣播)");
                 Console.WriteLine("  [6] ◈ 全服批量禁言處分 (可處生成員設定禁言分鐘數)");
                 Console.WriteLine("  [7] ❖ 全服批量統一名稱 (一鍵批量修改頻道 / 身分組 / 成員暱稱)");
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("  [K] ◈ 踢出指定成員 (含身分組位階安全校驗與審計日誌)");
+                Console.WriteLine("  [T] ❖ 精確禁言 / 解除禁言指定成員 (自訂時長與原因)");
+                Console.WriteLine("  [N] ✦ 伺服器與頻道限制級 (NSFW) 開關");
+                Console.WriteLine("  [S] ✦ 安全模式與權限前置巡檢 (驗證機器人管理權限)");
                 Console.ForegroundColor = ConsoleColor.Magenta;
                 Console.WriteLine("  [E] ❖ 滿額表情包置換 (清理舊表情並灌入 50 個專屬可愛表情包)");
                 Console.WriteLine("  [I] ✦ 一鍵更換伺服器主題頭像 (套用深淵專屬高畫質星門主題頭像)");
                 Console.WriteLine("  [M] ✦ 切換主題範本預設集 (7大世界觀：永恆深淵/廢墟城區/救贖序章...)");
                 Console.ForegroundColor = ConsoleColor.Blue;
-                Console.WriteLine("  [B] ✦ 立即備份伺服器完整架構 (身分組/頻道/排序 JSON 導出)");
+                Console.WriteLine("  [B] ✦ 立即備份伺服器完整架構 (身分組/類別/頻道/權限覆寫 JSON 導出)");
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("  [R] ✦ 一鍵架構復原 (從本地 backups/ 備份檔多併發極速還原)");
+                Console.WriteLine("  [R] ✦ 智慧架構原樣復原 (從備份檔映射還原身分組與權限覆寫矩陣)");
                 Console.ForegroundColor = ConsoleColor.Blue;
                 Console.WriteLine("  [8] ◈ 切換目標伺服器");
                 Console.ForegroundColor = ConsoleColor.Red;
@@ -432,7 +616,7 @@ namespace AbyssCore
                 Console.WriteLine("═════════════════════════════════════════════════════════════════════");
                 Console.ResetColor();
 
-                Console.Write("▶ 請輸入行動代碼 [1, 2, 4, D, 5, 6, 7, E, I, M, B, R, 8, 0]: ");
+                Console.Write("▶ 請輸入行動代碼 [1, 2, 4, D, 5, 6, 7, K, T, N, S, E, I, M, B, R, 8, 0]: ");
                 string action = Console.ReadLine()?.Trim().ToUpperInvariant() ?? "";
 
                 if (action == "0" || action == "8") return;
@@ -465,6 +649,22 @@ namespace AbyssCore
 
                     case "7":
                         await HandleBatchRenameAsync(client, guildId);
+                        break;
+
+                    case "K":
+                        await HandleKickMemberAsync(client, guildId);
+                        break;
+
+                    case "T":
+                        await HandleTimeoutMemberMenuAsync(client, guildId);
+                        break;
+
+                    case "N":
+                        await HandleNsfwMenuAsync(client, guildId);
+                        break;
+
+                    case "S":
+                        await HandleSafetyCheckAsync(client, guildId);
                         break;
 
                     case "E":
@@ -965,15 +1165,302 @@ namespace AbyssCore
                 Console.WriteLine($"✦ 即將以多並發極速還原 {Path.GetFileName(targetFile)}...");
                 Console.ResetColor();
 
-                var (roles, chs) = await GuildBackupManager.RestoreGuildStructureAsync(client, guildId, targetFile, msg =>
+                var report = await GuildBackupManager.RestoreGuildStructureAsync(client, guildId, targetFile, msg =>
                 {
                     Console.WriteLine($"  ▶ {msg}");
                 });
 
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"✔ 還原作業完成！成功還原: {roles} 個身分組，{chs} 個頻道。");
+                Console.WriteLine($"✔ 智慧架構還原完成！身分組: {report.RolesRestored}, 類別: {report.CategoriesRestored}, 頻道: {report.ChannelsRestored}, 權限覆寫: {report.OverwritesRestored} 條規則");
+                if (report.NsfwRestored)
+                {
+                    Console.WriteLine("✔ 伺服器限制級 (NSFW) 狀態已同步復原。");
+                }
                 Console.ResetColor();
             }
+        }
+
+        private static async Task HandleKickMemberAsync(DiscordApiClient client, string guildId)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("\n=== ◈ 踢出指定成員選單 ===");
+            Console.ResetColor();
+
+            Console.Write("▶ 請輸入欲踢出之成員 ID 或 Mention (<@用戶ID>): ");
+            string rawId = Console.ReadLine()?.Trim() ?? "";
+            string targetUserId = CleanUserId(rawId);
+
+            if (string.IsNullOrEmpty(targetUserId))
+            {
+                Console.WriteLine("▲ 用戶 ID 不可為空。");
+                return;
+            }
+
+            Console.Write("▶ 請輸入踢出原因 (直接按 Enter 使用「終端手動踢出處分」): ");
+            string reasonInput = Console.ReadLine()?.Trim() ?? "";
+            string reason = string.IsNullOrEmpty(reasonInput) ? "終端手動踢出處分" : reasonInput;
+
+            var (canAct, hierarchyReason) = await SafetyManager.ValidateHierarchyAsync(client, guildId, targetUserId);
+            if (!canAct)
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"▲【安全防護攔截】無法對目標執行處分: {hierarchyReason}");
+                Console.ResetColor();
+                return;
+            }
+
+            Console.Write($"◈【踢出確認】確定要將成員 {targetUserId} 踢出伺服器嗎？[y/N]: ");
+            if (Console.ReadLine()?.Trim().ToLowerInvariant() != "y")
+            {
+                Console.WriteLine("▲ 已取消踢出操作。");
+                return;
+            }
+
+            bool ok = await client.KickMemberAsync(guildId, targetUserId, reason);
+            if (ok)
+            {
+                await SafetyManager.LogAuditAsync("Terminal", "KickMember", targetUserId, reason);
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"✔ 成員 {targetUserId} 已成功踢出！審計日誌已記錄。");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"▲ 踢出成員 {targetUserId} 失敗，請確認機器人權限與目標成員位階。");
+            }
+            Console.ResetColor();
+        }
+
+        private static async Task HandleTimeoutMemberMenuAsync(DiscordApiClient client, string guildId)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("\n=== ❖ 精確禁言 / 解除禁言管理選單 ===");
+            Console.WriteLine("  [1] ◈ 禁言指定成員 (設定分鐘數與原因)");
+            Console.WriteLine("  [2] ✦ 解除指定成員禁言 (立即解禁)");
+            Console.ResetColor();
+
+            Console.Write("▶ 請選擇操作項目 [1-2]: ");
+            string subChoice = Console.ReadLine()?.Trim() ?? "";
+
+            if (subChoice == "1")
+            {
+                Console.Write("▶ 請輸入欲禁言之成員 ID 或 Mention (<@用戶ID>): ");
+                string rawId = Console.ReadLine()?.Trim() ?? "";
+                string targetUserId = CleanUserId(rawId);
+                if (string.IsNullOrEmpty(targetUserId))
+                {
+                    Console.WriteLine("▲ 用戶 ID 不可為空。");
+                    return;
+                }
+
+                Console.Write("▶ 請輸入禁言時間 (1 - 40320 分鐘，預設 5): ");
+                int minutes = int.TryParse(Console.ReadLine(), out int m) && m > 0 ? Math.Min(40320, m) : 5;
+
+                Console.Write("▶ 請輸入處分原因 (直接按 Enter 使用「終端管理員禁言處分」): ");
+                string reasonInput = Console.ReadLine()?.Trim() ?? "";
+                string reason = string.IsNullOrEmpty(reasonInput) ? "終端管理員禁言處分" : reasonInput;
+
+                var (canAct, hierarchyReason) = await SafetyManager.ValidateHierarchyAsync(client, guildId, targetUserId);
+                if (!canAct)
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"▲【安全防護攔截】無法對目標執行處分: {hierarchyReason}");
+                    Console.ResetColor();
+                    return;
+                }
+
+                bool ok = await client.TimeoutMemberAsync(guildId, targetUserId, minutes, reason);
+                if (ok)
+                {
+                    await SafetyManager.LogAuditAsync("Terminal", "TimeoutMember", targetUserId, $"時長: {minutes} 分鐘, 原因: {reason}");
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"✔ 成員 {targetUserId} 已成功禁言 {minutes} 分鐘！");
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"▲ 禁言成員 {targetUserId} 失敗，請確認位階與權限。");
+                }
+                Console.ResetColor();
+            }
+            else if (subChoice == "2")
+            {
+                Console.Write("▶ 請輸入欲解除禁言之成員 ID 或 Mention (<@用戶ID>): ");
+                string rawId = Console.ReadLine()?.Trim() ?? "";
+                string targetUserId = CleanUserId(rawId);
+                if (string.IsNullOrEmpty(targetUserId))
+                {
+                    Console.WriteLine("▲ 用戶 ID 不可為空。");
+                    return;
+                }
+
+                Console.Write("▶ 請輸入解禁原因 (直接按 Enter 使用「終端管理員解除禁言」): ");
+                string reasonInput = Console.ReadLine()?.Trim() ?? "";
+                string reason = string.IsNullOrEmpty(reasonInput) ? "終端管理員解除禁言" : reasonInput;
+
+                bool ok = await client.RemoveTimeoutMemberAsync(guildId, targetUserId, reason);
+                if (ok)
+                {
+                    await SafetyManager.LogAuditAsync("Terminal", "RemoveTimeout", targetUserId, reason);
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"✔ 成員 {targetUserId} 禁言已解除！");
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"▲ 解除禁言失敗，請確認該成員是否已被禁言或機器人具備處分權限。");
+                }
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.WriteLine("▲ 無效的操作代碼。");
+            }
+        }
+
+        private static async Task HandleNsfwMenuAsync(DiscordApiClient client, string guildId)
+        {
+            Console.ForegroundColor = ConsoleColor.Magenta;
+            Console.WriteLine("\n=== ✦ 伺服器與頻道限制級 (NSFW) 設定選單 ===");
+            Console.WriteLine("  [1] ◈ 設定伺服器整體 NSFW 限制級等級");
+            Console.WriteLine("  [2] ❖ 批量設定全服文字頻道為 NSFW / 普遍級");
+            Console.ResetColor();
+
+            Console.Write("▶ 請選擇操作項目 [1-2]: ");
+            string choice = Console.ReadLine()?.Trim() ?? "";
+
+            if (choice == "1")
+            {
+                Console.WriteLine("\n  [0] 預設 (Default)");
+                Console.WriteLine("  [1] 包含成人內容 (Explicit)");
+                Console.WriteLine("  [2] 安全伺服器 (Safe)");
+                Console.WriteLine("  [3] 年齡限制 (Age Restricted)");
+                Console.Write("▶ 請選擇欲設定之限制級等級 [0-3]: ");
+                if (int.TryParse(Console.ReadLine(), out int lvl) && lvl >= 0 && lvl <= 3)
+                {
+                    bool ok = await client.ModifyGuildNsfwLevelAsync(guildId, lvl);
+                    if (ok)
+                    {
+                        await SafetyManager.LogAuditAsync("Terminal", "ModifyGuildNsfwLevel", guildId, $"等級設定為 {lvl}");
+                        Console.ForegroundColor = ConsoleColor.Green;
+                        Console.WriteLine($"✔ 伺服器 NSFW 等級已成功變更為等級 {lvl}！");
+                    }
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine("▲ 變更伺服器 NSFW 等級未成功，可能受限於 Discord 合作夥伴或官方社群驗證狀態。");
+                    }
+                    Console.ResetColor();
+                }
+            }
+            else if (choice == "2")
+            {
+                Console.Write("▶ 請選擇批量設定狀態 [1: 全設為限制級(NSFW), 2: 全設為普遍級(非NSFW)]: ");
+                string state = Console.ReadLine()?.Trim() ?? "";
+                bool enableNsfw = state == "1";
+
+                var channels = await client.GetGuildChannelsAsync(guildId);
+                var textChannels = channels.Where(ch => ch.TryGetProperty("type", out var t) && t.GetInt32() == 0).ToList();
+
+                if (textChannels.Count == 0)
+                {
+                    Console.WriteLine("▲ 無文字頻道可供變更。");
+                    return;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"✦ 正在多工並發將 {textChannels.Count} 個文字頻道之限制級狀態切換為: {(enableNsfw ? "NSFW 開啟" : "普遍級")}...");
+                Console.ResetColor();
+
+                int success = 0;
+                var tasks = textChannels.Select(ch =>
+                {
+                    string cid = ch.GetProperty("id").GetString()!;
+                    return Task.Run(async () =>
+                    {
+                        if (await client.SetChannelNsfwAsync(cid, enableNsfw))
+                        {
+                            System.Threading.Interlocked.Increment(ref success);
+                        }
+                    });
+                });
+
+                await Task.WhenAll(tasks);
+                await SafetyManager.LogAuditAsync("Terminal", "BatchSetChannelNsfw", guildId, $"狀態: {enableNsfw}, 頻道數: {success}/{textChannels.Count}");
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"✔ 頻道限制級狀態切換完成！成功套用: {success}/{textChannels.Count} 個頻道。");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.WriteLine("▲ 無效的操作代碼。");
+            }
+        }
+
+        private static async Task HandleSafetyCheckAsync(DiscordApiClient client, string guildId)
+        {
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("\n=== ✦ 機器人安全與位階權限前置巡檢 ===");
+            Console.WriteLine("✦ 正在檢驗機器人權限位元、身分組位階與伺服器擁有者關係...");
+            Console.ResetColor();
+
+            var safety = await SafetyManager.CheckBotSafetyAsync(client, guildId);
+
+            Console.WriteLine($"\n  ◈ 機器人名稱: {safety.BotUsername} (ID: {safety.BotId})");
+            Console.WriteLine($"  ◈ 伺服器名稱: {safety.GuildName} (ID: {guildId})");
+            Console.WriteLine($"  ◈ 擁有者 ID: {safety.OwnerId}");
+            Console.WriteLine($"  ◈ 機器人最高位階 (Role Position): {safety.HighestRolePosition}");
+            Console.WriteLine($"  ◈ 綜合權限位元 (Bitfield): 0x{safety.PermissionsBitfield:X}");
+            Console.WriteLine("\n=== 關鍵操作權限狀態 ===");
+            PrintPermItem("系統管理員 (Administrator)", safety.IsAdministrator);
+            PrintPermItem("踢出成員 (Kick Members)", safety.CanKick);
+            PrintPermItem("封鎖成員 (Ban Members)", safety.CanBan);
+            PrintPermItem("管理頻道 (Manage Channels)", safety.CanManageChannels);
+            PrintPermItem("管理身分組 (Manage Roles)", safety.CanManageRoles);
+            PrintPermItem("處分成人員 (Moderate Members)", safety.CanModerateMembers);
+            PrintPermItem("管理伺服器 (Manage Guild)", safety.CanManageGuild);
+
+            if (safety.Errors.Count > 0)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("\n▲ 巡檢期間發現異常：");
+                foreach (var err in safety.Errors)
+                {
+                    Console.WriteLine($"  ✖ {err}");
+                }
+                Console.ResetColor();
+            }
+            else if (safety.IsAdministrator)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("\n✔ 機器人具備【系統管理員】最高特權，所有指令與全景重構功能均可順暢執行！");
+                Console.ResetColor();
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("\n▲ 機器人未具備最高系統管理員權限，部分操作可能會受身分組位階限制。");
+                Console.ResetColor();
+            }
+
+            Console.WriteLine("\n按 Enter 鍵繼續...");
+            Console.ReadLine();
+        }
+
+        private static void PrintPermItem(string name, bool granted)
+        {
+            if (granted)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"  [✔] {name}");
+            }
+            else
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine($"  [✖] {name}");
+            }
+            Console.ResetColor();
         }
 
         private static void PrintBanner()
