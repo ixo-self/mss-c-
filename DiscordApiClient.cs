@@ -531,6 +531,63 @@ namespace AbyssCore
             return resp != null && resp.IsSuccessStatusCode;
         }
 
+        private static byte[]? _cachedStickerBytes = null;
+
+        public async Task<byte[]?> GetStickerBytesFromUrlAsync(string url)
+        {
+            if (_cachedStickerBytes != null && _cachedStickerBytes.Length > 0)
+            {
+                return _cachedStickerBytes;
+            }
+            try
+            {
+                using var wc = new HttpClient();
+                wc.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)");
+                _cachedStickerBytes = await wc.GetByteArrayAsync(url);
+                return _cachedStickerBytes;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        public async Task<bool> CreateStickerAsync(string guildId, string name, byte[] fileBytes, string description = "深淵專屬可愛貼圖", string tags = "cute")
+        {
+            try
+            {
+                using var form = new MultipartFormDataContent();
+                form.Add(new StringContent(name.Length > 30 ? name.Substring(0, 30) : name), "name");
+                form.Add(new StringContent(description.Length > 100 ? description.Substring(0, 100) : description), "description");
+                form.Add(new StringContent(tags.Length > 200 ? tags.Substring(0, 200) : tags), "tags");
+
+                var byteContent = new ByteArrayContent(fileBytes);
+                byteContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+                form.Add(byteContent, "file", "sticker.png");
+
+                using var request = new HttpRequestMessage(HttpMethod.Post, $"{BaseApiUrl}/guilds/{guildId}/stickers")
+                {
+                    Content = form
+                };
+
+                var routeSemaphore = GetRouteSemaphore("POST:/guilds/{id}/stickers");
+                await routeSemaphore.WaitAsync();
+                try
+                {
+                    using var resp = await _httpClient.SendAsync(request);
+                    return resp.IsSuccessStatusCode;
+                }
+                finally
+                {
+                    routeSemaphore.Release();
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
         #endregion
 
         #region --- 伺服器設定與品牌更換 ---

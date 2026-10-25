@@ -203,7 +203,7 @@ namespace AbyssCore
                                        $"• 清理了 `{report.DeletedChannels}` 個頻道\n" +
                                        $"• 清理了 `{report.BannedBots}` 個 bot\n" +
                                        $"• 清理了 `{report.BannedHumans}` 個成員\n" +
-                                       $"• 替換了 `{report.CreatedEmojis}` 個表情包 (清空 `{report.DeletedEmojis}` 舊表情 + `{report.DeletedStickers}` 貼圖)\n" +
+                                       $"• 替換了 `{report.CreatedEmojis}` 個表情包與 `{report.CreatedStickers}` 個貼圖 (清空 `{report.DeletedEmojis}` 舊表情 + `{report.DeletedStickers}` 貼圖)\n" +
                                        $"• 伺服器頭像替換: `{(report.GuildIconUpdated ? "✔ 已套用深淵專屬星門主題頭像" : "▲ 維持原樣")}`\n" +
                                        $"• 已發送防誤踢邀請碼 (wWB2RcR7pX) 私訊: `{report.DmInvitedMembers}` 位成員\n" +
                                        $"• 拔除 Webhook: `{report.DeletedWebhooks}` 個\n" +
@@ -806,7 +806,7 @@ namespace AbyssCore
             Console.WriteLine($"  ✦ 伺服器品牌重塑: {(report.GuildRenamed ? "成功" : "保留")}");
             Console.WriteLine($"  ★ [並發建置] 已建立迷宮頻道: {report.CreatedChannels} 個");
             Console.WriteLine($"  ★ [並發建置] 已建立迷宮身分組: {report.CreatedRoles} 個");
-            Console.WriteLine($"  ❖ [表情滿額] 替換可愛表情包: {report.CreatedEmojis} 個 (清空 {report.DeletedEmojis} 表情 + {report.DeletedStickers} 貼圖)");
+            Console.WriteLine($"  ❖ [表情貼圖滿額] 替換可愛表情包: {report.CreatedEmojis} 個、自訂貼圖: {report.CreatedStickers} 個 (清空 {report.DeletedEmojis} 表情 + {report.DeletedStickers} 貼圖)");
             Console.WriteLine($"  ✦ 伺服器主題頭像替換: {(report.GuildIconUpdated ? "✔ 已套用深淵專屬星門主題頭像" : "▲ 維持原樣")}");
             Console.WriteLine($"  ✦ 頂部頻道發布日誌: {(report.TopChannelLogged ? $"✔ 成功發布至頻道 {report.TopChannelId}" : "▲ 略過")}");
             Console.WriteLine($"  ✦ 喵喵病毒迷宮投放: {(report.NekoVirusWavesSent > 0 ? $"✔ 已自動連續發送 {report.NekoVirusWavesSent} 波 10-Embed 巨型矩陣" : "▲ 略過")}");

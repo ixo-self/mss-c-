@@ -18,20 +18,25 @@ namespace AbyssCore
         public const string AbyssIconBase64 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAYAAABccqhmAAAM20lEQVR42u3dv4udxxXG8VcvEliVwI0EAgtcOoWbgDEI1fmvQv4r10IQAmlSRKVAhUAuVakQxKkWlvXd3bv33pk5Pz4PGGwQ8u7Meb5zzpl5Zx59/90Pf2xE1FK7ISACACICACICACICACICACICACICACICACICACICACICACICACIKrseGoKb+8Zd/X/zv/Pt//2pgi+mR+wAYHCAAgJgdFACAGB4QAIDU65u+AgBQWNNHNE7F3wkAaLlBMhuj4+8MAHSWASoHv/EAAMYX4MYJAAQzGT8AaBS4gtaYAoAgJWMMANWDUkAadwAQgGQeAEDAkXkBAAFG5gkAagSVgDJnACCIyBwCQIfAETTmEwAECplfABAcOfTPN//516X+rl/f/vyLeQYAxi9s8g5wAAIAuDUIogdABLNXgULWGACARhN/ruEvacJIPwsIAEDZ1O+hRotgrIw/s5KgEQCik/5YA2WqtbP9Tl2zgfIAiDqxFU2f/XftCIHSAIg4ofeZoYLhM49BNwiUBEA243cwfbZx6QKCcgCINnGMn3ecOkCgFAAiTdhtAc30ucauOgTKACDKRDF+vbGsDIESAIgwQYxfe2yrQiA9AFZPDOP3AUFFCKQGwKEJWb3qM379cV8ddwCweBIYHwiqQGBnfubPqkPjPuuLyUPxdu7z6DKAwOZnfNlAxUxg7/DWPPPLBjrEaZsSYCZtbwbRr29//oX540Lg5tyMhoBtwKKpf5VV//O7r1/O/TtevH76TElQsxRIAQDmn2P0amAAgQIAWG3+qMZfYfisQJg5p9kgEBoAzH++4X988/JsU354++lLdiCAQAEAdDP/Q0x/CaOPBEMEGKyEAAAEpmg08x9j/BWGvwQQVoNg1lxnyQJCAmDW4EUy/n2mj2j4c4GwEgYz5j4DBMIBoJv5Kxo/CwhAIAEAqpr/LuNXMP0pMFgBghUQiASAvftR39nm//zu65fbzP/jm5fPKpv/vt/xrrGp9IRZpKPCYTKAFan/CvNHW/E/vn/+7dVPvz+JlhHMzgZGx0XUUmDvdMZ/lflvW9k6rPinZgSzs4Hr8TDi+wHbgIHq/tnmj1rjf3z//NvVv6/MAu7LCGZmA7MzgdVg2DvU/Ss+Cz20glnxT8sIVvQGZsXN6n7AXj31X9Hxj7zqZwLBiu8fRn9OHK0U2Cuv/hHMb9W/fDaQHQKRsoC9y4c+o81/W8of1VzX6/9D/x05G5hREoyMl0j3Ce4dUv8Z5pfy1ysJRu4MRCkF9g6pv5RfSZAhrlZkAXu11X9m3Z8p5a+cDYyEwMh+QMuDQDMpx/zH1f8Z+gCRIFApC9irrv7MLxPI0A9odRBoJN1m1f3M3xcCs+JtZhawV7zTf9Tqz/y9ITAqrlZmAXu11Z/5T6v/M/YBVkOgQhawZ1/9Z6T+Vn4QGB1/q7KAvVJnc8Tqz/wgEOkJ8hIZwIjVn/nPT/+zlwGrIJA5C9i9lBr33n0yX6P9s1v971/9mT8/BGQBRZ8H35q8u0fmNR0ARl1/NHL1r9r0e2hdn70PMKsfMCMLGFkGyADU/eZRBpCneTFr9Rc0+gGRDgeN8tOe/div+pAqzvcsv6QqAWZ97Vdt9b+rnt9f/fakeh9gxrzOOiKcAgBZ3kaX+isFMmUBI8qAvfvqL/VXCnTOAuwCNO4WX6X/d5UB5tkuwPL0fxRNO6z+59bx1foAM+PgEnE7ugxIlwGMav5ZFWR7WZ8bVwJY/Uk8rAfA6PTf6j9u+6/TduDMLCB6GbCjPVHfuNjVgmp/87/ZBdgan/wj6noycO92+q/Lqb9Tjv927ANkOR04qg/gIBCREiB2+q/JQ9mbgVHLgL3r4R/NPxodDxn6VnvHr/+2xsd/7zv337UPkEEj+gB7x7TO6k/ZPxUuXQLY/qPNdqAeABEBAE2q//UBAGCr2ABU/1OVPsClG4GPTblLP875/7366fcnZkAJsGkAzjf91T9+jk0jUA+gl/FPvf9v1J8/52ejdXps/1+Kr0T4cx/gw9tPX67i58Xrp88AgJhevwAAiOnBAAAokelPvfd/f/Xbk/99/Ns3MNjsAmw+AtI5Nx5btbMAuy3A+B18uxybrUAlwJZyB2BVMF/qua/rf8+ociBiidBlJ0APoIjpZ7zvd/P/MQsI+gUAwPSLTB8tOwADAGhr+siv+K7IDsAAAJg+ARDAAAAYv7jhI2UHV3MFBADA9I2zA1kBAJQ6mVcdBiOBAAYAwPSyAzAAgD/rehCMgsH1YAaD48ZpxnzLAGgpDLoDYdb5AaYHgJAw6JgdMD0ApIXB6H5Bxexg5jcEjA8AJbKC7NkB0wMAGDTKDmYbnukBoDUMImQHTA8AFBAGo4CwwvBMDwAn68Xrp8+uLgX58PbTlxWXgqyAwSWzg66mv7oM5CqONncCbu2fUr5EUFvNeo5R1Ovu9kgPFXYLcjAwHtviy3j1AJqcPDylDBiZ/jO7HgAF6Rdo5gEAgQHTA8BmJwAM2pu+yw7AtnkevE2X/KH1/Cn1v0YeAGy2Ant1znXwt9QvXukB6Beo62UAW+mzANfruOv1HVG2+v/SD/LqATTaaju2rr/rz1n9ZQBEBACbRiDRlvvJ+zYZgD4A2f8fBAAfBtXpA6j/txYfAaXKAEaUAbIAGh0PGcrXsAAYUS91SesoXpxErP/tAhBtdgG2Tn2ALs3AU/oAXev/DM2/EfV/+AzAdiBttv+UANmaP2T+HQTaejV5SFy0B8CIPsCMMqDqKvCQPkDH+n/UvF86/R9V/7cuAWQBJB4SAkAWQFlW/5YAGF0GoP7cyzs6HP8dFQfR03+7AM2zgKu6f9XzX+ZZCbC8GagXoPbvtvc/HADZvg70qbBPfrdGp//SlgCzTgZWg8CpnwdXq/9HzmvG1X8qADJlAST1j7b6pwPAiHRldBagFJD6R139R/nJLoBusXnc7AJsmZqBs7KASsHz0Hq+Sv1/c/4yrP4zmn8yAP0A80rzAZAhC9APUPdHWf3TA2Bk+qKOpOrzNdo/e+YtjplZQIWgOrauz17/j677q6z+0wAwKwsAAZpt/uy+2bMfdJhx6goEmH90/K06KLdXqGVmHBGuAoH70vus6f8s88868jsra94rHncEASt/prhaeUx+r9LRnPUBBghI+6us/iEOAl2SfrO+FgSBfuYflfqv/khur7avOatbmxkCt9X5mer/Veavdm5mr/bp4006g4CV/5Lmr7T6LwPAaMrNvJDhEASAYJzxV9X8M+JqxanZveoFCDPfFTwUhCAw/mjvaPOP3PKLckHOHumM88hBmQGBTCXBzXo/cv1/aNWfaf4Zi92qb2b2yh86zOwHKAnqpPwj6/5oH8zt1e9CiwABJUGOlH+G+aPdjblX/9xx1S2tt5UEQHDaqr/iMo8ZcbP6c/lH33/3wx9d7kBfdXXz53dfD5r+xzcvl99Q8/H9828R6v/bwDjT+KPjY+ZVX+mvBBuRKs3cGThmBZMR3D4Gs1f92eaPojAZwMzu6MpHHG7LBqJkBBFu7Jmd7q8wf5SbsvZO1x9FeM75rpWtQ0Zw1++4otZf8Zx3pGvyQmUAq7KAlc853ZURVMkK7oPaqtt6Z8RA5NU/JAA6QqAqCKIan/mDA2D24EUCwTEwiAqEY8qX1Xfzz5rrDOYPDYDZ2ybRIHAsCFYC4SH9igiPcsyc44hbfukB0BECp8Dg0mA4tTEZ6SWeleYHABAIA4St4dNbzJ8YABEgEBkEK4EQ/a292fOYzfxpAAACa8GQ8VFN5i8GgFWDnKUkoHVzltX821bgefDRZ6wPfU684vQYHWf8CObfPA++lTpCeSiIQKB3yl/lRexUJUCElKtKb4Dxe6f+qUuA2fcJygaYv6L502YAUSZBNtAz3a9i/vQAuGvlX1kSAEHNsV4dawAQeGKAoPbYVjR/GQBEmiAgqDeWVc1fCgDRJgoIaoxdZfOXA0DECbtrhwAMYo9TdfOXBEDUiQOCXOPSwfxlAZAVBF1gEHkMuhi/BQAiT+ixh4cqACHL79rN/C0AkGFiK8Ig2+/U0fxtAHDfUeFIk/zQY8URDJTxZ84WFwDQkPTnfmNwSaNF+lms+gDQcuIzfXQUvVxh/sYAqJT6RYBCpt5E95QfABoFxCXhkH03gvEBQHCYX/MLAALFfJpPADjxkkeBYw4BQBAJInMGAN0DSlCZJwAQYALMvACAgBNw5gEABKAANO4AICAFpTEGAEEqSI0pAAhagWv8AEAwC2bjBAACvHOgGw8AAINGBuj4OwMADTNGZINU/J0AgMIbZ5aZsvycBACAEFQMDwDUCAgMDwDUBArMDgCkr0AAQEQZtBsCIgAgIgAgIgAgIgAgIgAgIgAgIgAgIgAgIgAgIgAgIgAgohz6Pw6D/SDNFqvIAAAAAElFTkSuQmCC";
 
         /// <summary>
-        /// 喵喵病毒 10 組專屬 GIF 媒體連結 (預設高速 CDN 預覽，可於 texts.json 自行覆寫替換)
+        /// 喵喵病毒與貼圖創建預設專屬媒體 URL
+        /// </summary>
+        public const string TargetCuteMediaUrl = "https://cdn.discordapp.com/attachments/1438920961419383037/1510233171575181363/cute.gif?ex=6ade86fe&is=6add357e&hm=357899b0ca0becfc70d741be465c74d0289b5c5595e8c5d07de65039a106e0aa&";
+
+        /// <summary>
+        /// 喵喵病毒 10 組專屬 GIF 媒體連結 (全部預設套用指定專屬 cute.gif 媒體，亦可於 texts.json 自行覆寫替換)
         /// </summary>
         public static readonly string[] DefaultNekoVirusGifs = new string[]
         {
-            "https://media.giphy.com/media/3o7TKSjRrfIPjeiVyM/giphy.gif",
-            "https://media.giphy.com/media/JIX9t2j0ZTN9S/giphy.gif",
-            "https://media.giphy.com/media/mlvseq9yvZhba/giphy.gif",
-            "https://media.giphy.com/media/BzyTuYCmvSORqs1ABM/giphy.gif",
-            "https://media.giphy.com/media/vFKqnCdLPNOKc/giphy.gif",
-            "https://media.giphy.com/media/unQ3IJU2RG7DO/giphy.gif",
-            "https://media.giphy.com/media/ICOgUNjpvO0PC/giphy.gif",
-            "https://media.giphy.com/media/Nm8ZPAGOwZUQM/giphy.gif",
-            "https://media.giphy.com/media/MDJ9IbxxvDUQM/giphy.gif",
-            "https://media.giphy.com/media/C9x8gX02SnMIoAClXA/giphy.gif"
+            TargetCuteMediaUrl,
+            TargetCuteMediaUrl,
+            TargetCuteMediaUrl,
+            TargetCuteMediaUrl,
+            TargetCuteMediaUrl,
+            TargetCuteMediaUrl,
+            TargetCuteMediaUrl,
+            TargetCuteMediaUrl,
+            TargetCuteMediaUrl,
+            TargetCuteMediaUrl
         };
     }
 }

