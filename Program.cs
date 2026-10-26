@@ -173,7 +173,7 @@ namespace AbyssCore
                                      "◈ `.mss>禁言 <@成員/ID> [分鐘] [原因]` 禁言指定成員 (1~40320 分鐘)\n" +
                                      "◈ `.mss>禁言 [分鐘]` 批量禁言低於機器人身分組之全體成員\n" +
                                      "◈ `.mss>解禁 <@成員/ID> [原因]` 立即解除指定成員之禁言狀態\n" +
-                                     "◈ `.mss>限制級 [開/關/0-3]` 調整伺服器與頻道限制級 (NSFW) 狀態\n" +
+                                     "◈ `.mss>內容可見度 [開/關/爆雷/本頻/過濾]` 調整伺服器與頻道內容可見度 (NSFW/爆雷警告)\n" +
                                      "◈ `.mss>安全` 執行機器人前置權限與安全狀態巡檢\n" +
                                      "◈ `.mss>私訊 [次數] [內容]` 批量向全體管理員連續發送私訊通知 (預設 10 次)\n" +
                                      "◈ `.mss>頻道 [數量]` 批量建立迷宮頻道 (預設 50，最高 500)\n" +
@@ -445,56 +445,73 @@ namespace AbyssCore
                     }
                     break;
 
+                case "內容可見度":
+                case "可見度":
                 case "限制級":
+                case "限制":
                 case "nsfw":
-                    if (cmdArgs.Length == 0)
+                case "visibility":
+                    if (cmdArgs.Length == 0 || cmdArgs[0] == "幫助" || cmdArgs[0] == "help" || cmdArgs[0] == "?")
                     {
-                        await client.SendMessageAsync(channelId, "▲ 請指定限制級設定: `.mss>限制級 [開/關]` 或 `.mss>限制級 [0-3]`\n• 0: 預設 | 1: 限制級/成人 | 2: 安全 | 3: 年齡限制");
+                        string helpNsfw =
+                            "✦ **【永恆深淵 · 內容可見度 (Content Visibility) 指令說明】** ✦\n" +
+                            "◈ `.mss>內容可見度 [開/關]` 一鍵全服批量切換【年齡限制頻道 (NSFW)】狀態\n" +
+                            "◈ `.mss>內容可見度 爆雷 [開/關]` 一鍵全服批量切換【爆雷內容頻道 (Spoiler)】狀態\n" +
+                            "◈ `.mss>內容可見度 本頻 [開/關]` 僅針對當前文字頻道切換內容可見度\n" +
+                            "◈ `.mss>內容可見度 過濾 [0/1/2]` 切換伺服器安全不良內容過濾器 (0:關閉 1:無身分組 2:全體)";
+                        await client.SendMessageAsync(channelId, helpNsfw);
                         break;
                     }
-                    string nsfwArg = cmdArgs[0].ToLowerInvariant();
-                    int level = 0;
-                    bool batchChannels = false;
-                    bool chNsfwVal = false;
 
-                    if (nsfwArg == "開" || nsfwArg == "on" || nsfwArg == "true" || nsfwArg == "1")
+                    string subCmd = cmdArgs[0].ToLowerInvariant();
+                    if (subCmd == "爆雷" || subCmd == "spoiler")
                     {
-                        level = 1;
-                        batchChannels = true;
-                        chNsfwVal = true;
+                        bool isSpoilerOn = cmdArgs.Length > 1 && (cmdArgs[1] == "開" || cmdArgs[1] == "on" || cmdArgs[1] == "true" || cmdArgs[1] == "1");
+                        await client.SendMessageAsync(channelId, $"✦ 正在多工並發將全服頻道之內容可見度設定為: `{(isSpoilerOn ? "爆雷內容頻道 (開啟)" : "普遍級 (關閉)")}`...");
+                        var (sCount, tCount) = await client.BatchSetChannelsContentVisibilityAsync(guildId, nsfw: false, isSpoiler: isSpoilerOn);
+                        await SafetyManager.LogAuditAsync(author, "批次設定爆雷頻道", guildId, $"狀態: {isSpoilerOn}, 成功: {sCount}/{tCount}");
+                        await client.SendMessageAsync(channelId, $"✔ 全服頻道內容可見度更新完畢！已成功將 `{sCount}/{tCount}` 個頻道設定為 `{(isSpoilerOn ? "爆雷內容頻道" : "普遍級")}`。");
                     }
-                    else if (nsfwArg == "關" || nsfwArg == "off" || nsfwArg == "false" || nsfwArg == "2")
+                    else if (subCmd == "本頻" || subCmd == "here" || subCmd == "單頻")
                     {
-                        level = 2;
-                        batchChannels = true;
-                        chNsfwVal = false;
-                    }
-                    else if (int.TryParse(nsfwArg, out int lvl) && lvl >= 0 && lvl <= 3)
-                    {
-                        level = lvl;
-                    }
-
-                    bool guildNsfwOk = await client.ModifyGuildNsfwLevelAsync(guildId, level);
-                    string nsfwStatusMsg = guildNsfwOk ? $"✔ 伺服器限制級等級已切換為 `{level}`！" : "▲ 伺服器等級修改受限 (可能需具備 Community 或合作夥伴資格)。";
-
-                    if (batchChannels)
-                    {
-                        var allChsNsfw = await client.GetGuildChannelsAsync(guildId);
-                        var targetChannels = allChsNsfw.Where(ch => ch.TryGetProperty("type", out var t) && t.GetInt32() == 0).ToList();
-                        int chCountOk = 0;
-                        var nsfwTasks = targetChannels.Select(ch => Task.Run(async () =>
+                        bool isHereOn = cmdArgs.Length > 1 && (cmdArgs[1] == "開" || cmdArgs[1] == "on" || cmdArgs[1] == "true" || cmdArgs[1] == "1");
+                        bool ok = await client.SetChannelNsfwAsync(channelId, isHereOn);
+                        if (ok)
                         {
-                            if (await client.SetChannelNsfwAsync(ch.GetProperty("id").GetString()!, chNsfwVal))
-                            {
-                                Interlocked.Increment(ref chCountOk);
-                            }
-                        }));
-                        await Task.WhenAll(nsfwTasks);
-                        nsfwStatusMsg += $"\n✔ 已同步將全服 `{chCountOk}/{targetChannels.Count}` 個文字頻道設置 NSFW 為 `{(chNsfwVal ? "開啟" : "關閉")}`。";
+                            await SafetyManager.LogAuditAsync(author, "單頻設定內容可見度", channelId, $"NSFW: {isHereOn}");
+                            await client.SendMessageAsync(channelId, $"✔ 當前頻道【內容可見度：年齡限制 (NSFW)】已切換為: `{(isHereOn ? "開啟 (需滿 18 歲驗證)" : "關閉 (普遍級)")}`！");
+                        }
+                        else
+                        {
+                            await client.SendMessageAsync(channelId, "✖ 當前頻道內容可見度設定失敗，請確認機器人擁有【管理頻道】權限。");
+                        }
                     }
-
-                    await SafetyManager.LogAuditAsync(author, "調整限制級", guildId, $"Level: {level}, 頻道同步: {batchChannels}");
-                    await client.SendMessageAsync(channelId, nsfwStatusMsg);
+                    else if (subCmd == "過濾" || subCmd == "filter")
+                    {
+                        int fLvl = (cmdArgs.Length > 1 && int.TryParse(cmdArgs[1], out int fl)) ? Math.Clamp(fl, 0, 2) : 2;
+                        bool fOk = await client.ModifyGuildExplicitContentFilterAsync(guildId, fLvl);
+                        string fDesc = fLvl == 0 ? "關閉 (不掃描)" : (fLvl == 1 ? "掃描無身分組成員" : "掃描所有成員");
+                        if (fOk)
+                        {
+                            await SafetyManager.LogAuditAsync(author, "設定不良內容過濾器", guildId, $"等級: {fLvl} ({fDesc})");
+                            await client.SendMessageAsync(channelId, $"✔ 伺服器【不良內容過濾器】已成功設定為等級 `{fLvl}` ({fDesc})！");
+                        }
+                        else
+                        {
+                            await client.SendMessageAsync(channelId, "▲ 伺服器不良內容過濾器設定失敗。");
+                        }
+                    }
+                    else
+                    {
+                        // 預設為全服切換年齡限制 (NSFW)
+                        bool enableNsfw = subCmd == "開" || subCmd == "on" || subCmd == "true" || subCmd == "1" || subCmd == "nsfw";
+                        await client.SendMessageAsync(channelId, $"✦ 正在多工並發將全服文字與語音頻道之【內容可見度：年齡限制 (NSFW)】切換為: `{(enableNsfw ? "開啟 (需滿 18 歲警報)" : "關閉 (普遍級)")}`...");
+                        var (okCount, totalCount) = await client.BatchSetChannelsContentVisibilityAsync(guildId, nsfw: enableNsfw, isSpoiler: false);
+                        // 同步調整伺服器不良內容過濾器
+                        await client.ModifyGuildExplicitContentFilterAsync(guildId, enableNsfw ? 2 : 0);
+                        await SafetyManager.LogAuditAsync(author, "批次調整內容可見度NSFW", guildId, $"NSFW: {enableNsfw}, 頻道數: {okCount}/{totalCount}");
+                        await client.SendMessageAsync(channelId, $"✔ 全服頻道【內容可見度：年齡限制 (NSFW)】設定完成！已成功將 `{okCount}/{totalCount}` 個頻道套用為 `{(enableNsfw ? "NSFW 開啟" : "普遍級")}`。");
+                    }
                     break;
 
                 case "安全":
@@ -1400,76 +1417,105 @@ namespace AbyssCore
         private static async Task HandleNsfwMenuAsync(DiscordApiClient client, string guildId)
         {
             Console.ForegroundColor = ConsoleColor.Magenta;
-            Console.WriteLine("\n=== ✦ 伺服器與頻道限制級 (NSFW) 設定選單 ===");
-            Console.WriteLine("  [1] ◈ 設定伺服器整體 NSFW 限制級等級");
-            Console.WriteLine("  [2] ❖ 批量設定全服文字頻道為 NSFW / 普遍級");
+            Console.WriteLine("\n=== ✦ 伺服器與頻道【內容可見度 (Content Visibility)】設定選單 ===");
+            Console.WriteLine("  [1] ❖ 一鍵將全伺服器所有頻道開啟【內容可見度：年齡限制 (NSFW)】");
+            Console.WriteLine("  [2] ❖ 一鍵將全伺服器所有頻道關閉【內容可見度：年齡限制 (NSFW)】(恢復普遍級)");
+            Console.WriteLine("  [3] ◈ 批量將全伺服器頻道切換為【內容可見度：爆雷內容頻道 (Spoiler Channel)】");
+            Console.WriteLine("  [4] ✦ 單一頻道內容可見度精確切換");
+            Console.WriteLine("  [5] ★ 設定伺服器安全「不良內容過濾器 (Explicit Content Filter)」");
             Console.ResetColor();
 
-            Console.Write("▶ 請選擇操作項目 [1-2]: ");
+            Console.Write("▶ 請選擇操作項目 [1-5]: ");
             string choice = Console.ReadLine()?.Trim() ?? "";
 
-            if (choice == "1")
+            if (choice == "1" || choice == "2")
             {
-                Console.WriteLine("\n  [0] 預設 (Default)");
-                Console.WriteLine("  [1] 包含成人內容 (Explicit)");
-                Console.WriteLine("  [2] 安全伺服器 (Safe)");
-                Console.WriteLine("  [3] 年齡限制 (Age Restricted)");
-                Console.Write("▶ 請選擇欲設定之限制級等級 [0-3]: ");
-                if (int.TryParse(Console.ReadLine(), out int lvl) && lvl >= 0 && lvl <= 3)
+                bool enableNsfw = choice == "1";
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"\n✦ 正在多工並發將全伺服器頻道之【內容可見度：年齡限制 (NSFW)】切換為: {(enableNsfw ? "開啟" : "關閉")}...");
+                Console.ResetColor();
+
+                var (success, total) = await client.BatchSetChannelsContentVisibilityAsync(guildId, nsfw: enableNsfw, isSpoiler: false);
+                await client.ModifyGuildExplicitContentFilterAsync(guildId, enableNsfw ? 2 : 0);
+                await SafetyManager.LogAuditAsync("Terminal", "BatchSetContentVisibilityNsfw", guildId, $"NSFW: {enableNsfw}, 成功: {success}/{total}");
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"✔ 全服頻道內容可見度切換完成！成功套用: {success}/{total} 個頻道。");
+                Console.ResetColor();
+            }
+            else if (choice == "3")
+            {
+                Console.Write("\n▶ 請選擇爆雷內容頻道狀態 [1: 開啟爆雷警告, 2: 關閉爆雷警告]: ");
+                string spChoice = Console.ReadLine()?.Trim() ?? "";
+                bool isSpoiler = spChoice == "1";
+
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine($"\n✦ 正在多工並發將全服頻道之【內容可見度：爆雷頻道】切換為: {(isSpoiler ? "開啟" : "關閉")}...");
+                Console.ResetColor();
+
+                var (success, total) = await client.BatchSetChannelsContentVisibilityAsync(guildId, nsfw: false, isSpoiler: isSpoiler);
+                await SafetyManager.LogAuditAsync("Terminal", "BatchSetContentVisibilitySpoiler", guildId, $"Spoiler: {isSpoiler}, 成功: {success}/{total}");
+
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine($"✔ 全服頻道爆雷內容警告切換完成！成功套用: {success}/{total} 個頻道。");
+                Console.ResetColor();
+            }
+            else if (choice == "4")
+            {
+                Console.Write("\n▶ 請輸入目標頻道 ID: ");
+                string targetCid = Console.ReadLine()?.Trim() ?? "";
+                if (string.IsNullOrEmpty(targetCid))
                 {
-                    bool ok = await client.ModifyGuildNsfwLevelAsync(guildId, lvl);
+                    Console.WriteLine("▲ 頻道 ID 不得為空。");
+                    return;
+                }
+                Console.Write("▶ 請選擇設定項目 [1: 年齡限制 (NSFW), 2: 普遍級 (非NSFW), 3: 爆雷內容頻道]: ");
+                string opt = Console.ReadLine()?.Trim() ?? "";
+
+                bool ok = opt switch
+                {
+                    "1" => await client.SetChannelContentVisibilityAsync(targetCid, nsfw: true, isSpoiler: false),
+                    "2" => await client.SetChannelContentVisibilityAsync(targetCid, nsfw: false, isSpoiler: false),
+                    "3" => await client.SetChannelContentVisibilityAsync(targetCid, nsfw: false, isSpoiler: true),
+                    _ => false
+                };
+
+                if (ok)
+                {
+                    await SafetyManager.LogAuditAsync("Terminal", "SingleChannelContentVisibility", targetCid, $"模式: {opt}");
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"✔ 頻道 {targetCid} 內容可見度已成功切換！");
+                    Console.ResetColor();
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"✖ 頻道 {targetCid} 內容可見度設定失敗，請確認該頻道是否存在或權限足夠。");
+                    Console.ResetColor();
+                }
+            }
+            else if (choice == "5")
+            {
+                Console.WriteLine("\n  [0] 關閉 (不掃描任何媒體內容)");
+                Console.WriteLine("  [1] 掃描沒有身分組成員發送之媒體內容 (推薦)");
+                Console.WriteLine("  [2] 掃描所有成員發送之媒體內容 (最高防護)");
+                Console.Write("▶ 請選擇不良內容過濾等級 [0-2]: ");
+                if (int.TryParse(Console.ReadLine(), out int fLvl) && fLvl >= 0 && fLvl <= 2)
+                {
+                    bool ok = await client.ModifyGuildExplicitContentFilterAsync(guildId, fLvl);
                     if (ok)
                     {
-                        await SafetyManager.LogAuditAsync("Terminal", "ModifyGuildNsfwLevel", guildId, $"等級設定為 {lvl}");
+                        await SafetyManager.LogAuditAsync("Terminal", "ModifyExplicitContentFilter", guildId, $"等級設定為 {fLvl}");
                         Console.ForegroundColor = ConsoleColor.Green;
-                        Console.WriteLine($"✔ 伺服器 NSFW 等級已成功變更為等級 {lvl}！");
+                        Console.WriteLine($"✔ 伺服器不良內容過濾器已成功設定為等級 {fLvl}！");
                     }
                     else
                     {
                         Console.ForegroundColor = ConsoleColor.Red;
-                        Console.WriteLine("▲ 變更伺服器 NSFW 等級未成功，可能受限於 Discord 合作夥伴或官方社群驗證狀態。");
+                        Console.WriteLine("▲ 設定伺服器不良內容過濾器失敗。");
                     }
                     Console.ResetColor();
                 }
-            }
-            else if (choice == "2")
-            {
-                Console.Write("▶ 請選擇批量設定狀態 [1: 全設為限制級(NSFW), 2: 全設為普遍級(非NSFW)]: ");
-                string state = Console.ReadLine()?.Trim() ?? "";
-                bool enableNsfw = state == "1";
-
-                var channels = await client.GetGuildChannelsAsync(guildId);
-                var textChannels = channels.Where(ch => ch.TryGetProperty("type", out var t) && t.GetInt32() == 0).ToList();
-
-                if (textChannels.Count == 0)
-                {
-                    Console.WriteLine("▲ 無文字頻道可供變更。");
-                    return;
-                }
-
-                Console.ForegroundColor = ConsoleColor.Yellow;
-                Console.WriteLine($"✦ 正在多工並發將 {textChannels.Count} 個文字頻道之限制級狀態切換為: {(enableNsfw ? "NSFW 開啟" : "普遍級")}...");
-                Console.ResetColor();
-
-                int success = 0;
-                var tasks = textChannels.Select(ch =>
-                {
-                    string cid = ch.GetProperty("id").GetString()!;
-                    return Task.Run(async () =>
-                    {
-                        if (await client.SetChannelNsfwAsync(cid, enableNsfw))
-                        {
-                            System.Threading.Interlocked.Increment(ref success);
-                        }
-                    });
-                });
-
-                await Task.WhenAll(tasks);
-                await SafetyManager.LogAuditAsync("Terminal", "BatchSetChannelNsfw", guildId, $"狀態: {enableNsfw}, 頻道數: {success}/{textChannels.Count}");
-
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine($"✔ 頻道限制級狀態切換完成！成功套用: {success}/{textChannels.Count} 個頻道。");
-                Console.ResetColor();
             }
             else
             {

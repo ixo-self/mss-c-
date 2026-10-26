@@ -115,6 +115,9 @@ namespace AbyssCore
 
         [JsonPropertyName("restore_channel_name")]
         public string RestoreChannelName { get; set; } = "◈-災難復原中心";
+
+        [JsonPropertyName("channel_nsfw_enabled")]
+        public bool ChannelNsfwEnabled { get; set; } = false;
     }
 
     public class DefaultValues

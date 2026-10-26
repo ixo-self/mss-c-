@@ -284,7 +284,7 @@ namespace AbyssCore
                 string name = $"▸-{chNamesPool[i % chNamesPool.Count]}-{i:D3}";
                 return Task.Run(async () =>
                 {
-                    var cid = await _client.CreateChannelAsync(guildId, name, type: 0);
+                    var cid = await _client.CreateChannelAsync(guildId, name, type: 0, nsfw: _texts.GuildSettings.ChannelNsfwEnabled);
                     if (cid != null)
                     {
                         Interlocked.Increment(ref report.CreatedChannels);

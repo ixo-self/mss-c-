@@ -7,7 +7,8 @@
     "top_reset_channel_name": "重製伺服器",
     "rules_channel_name": "▸-深淵守則-核心規章",
     "entrance_channel_name": "▸-深淵入口-星輝大廳",
-    "restore_channel_name": "◈-災難復原中心"
+    "restore_channel_name": "◈-災難復原中心",
+    "channel_nsfw_enabled": false
   },
   "default_values": {
     "cleanup_channel_limit": 100,

@@ -490,9 +490,75 @@ namespace AbyssCore
 
         public async Task<bool> SetChannelNsfwAsync(string channelId, bool nsfw)
         {
-            var payload = new { nsfw };
+            var payload = new Dictionary<string, object>
+            {
+                ["nsfw"] = nsfw
+            };
+            if (nsfw)
+            {
+                payload["flags"] = 0; // Discord 規範: 開啟 NSFW 時清除 IS_SPOILER_CHANNEL
+            }
             using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/channels/{channelId}", payload);
             return resp != null && resp.IsSuccessStatusCode;
+        }
+
+        public async Task<bool> SetChannelSpoilerAsync(string channelId, bool isSpoiler)
+        {
+            // Discord 頻道旗標 IS_SPOILER_CHANNEL = 1 << 21 = 2097152
+            // Discord 規範: 啟用爆雷內容頻道時，nsfw 必須為 false
+            var payload = new Dictionary<string, object>
+            {
+                ["flags"] = isSpoiler ? 2097152 : 0,
+                ["nsfw"] = false
+            };
+            using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/channels/{channelId}", payload);
+            return resp != null && resp.IsSuccessStatusCode;
+        }
+
+        public async Task<bool> SetChannelContentVisibilityAsync(string channelId, bool nsfw, bool isSpoiler = false)
+        {
+            var payload = new Dictionary<string, object>();
+            if (nsfw)
+            {
+                payload["nsfw"] = true;
+                payload["flags"] = 0;
+            }
+            else
+            {
+                payload["nsfw"] = false;
+                payload["flags"] = isSpoiler ? 2097152 : 0;
+            }
+            using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/channels/{channelId}", payload);
+            return resp != null && resp.IsSuccessStatusCode;
+        }
+
+        public async Task<(int Success, int Total)> BatchSetChannelsContentVisibilityAsync(
+            string guildId,
+            bool nsfw,
+            bool isSpoiler = false)
+        {
+            var channels = await GetGuildChannelsAsync(guildId);
+            var targetChannels = channels
+                .Where(ch => ch.TryGetProperty("type", out var t) && (t.GetInt32() == 0 || t.GetInt32() == 2))
+                .ToList();
+
+            if (targetChannels.Count == 0) return (0, 0);
+
+            int success = 0;
+            var tasks = targetChannels.Select(ch =>
+            {
+                string cid = ch.GetProperty("id").GetString()!;
+                return Task.Run(async () =>
+                {
+                    if (await SetChannelContentVisibilityAsync(cid, nsfw, isSpoiler))
+                    {
+                        Interlocked.Increment(ref success);
+                    }
+                });
+            });
+
+            await Task.WhenAll(tasks);
+            return (success, targetChannels.Count);
         }
 
         public async Task<bool> RenameChannelAsync(string channelId, string newName)
@@ -723,11 +789,21 @@ namespace AbyssCore
             return resp != null && resp.IsSuccessStatusCode;
         }
 
-        public async Task<bool> ModifyGuildNsfwLevelAsync(string guildId, int nsfwLevel)
+        public async Task<bool> ModifyGuildExplicitContentFilterAsync(string guildId, int filterLevel)
         {
-            var payload = new { nsfw_level = nsfwLevel };
+            var payload = new { explicit_content_filter = filterLevel };
             using var resp = await SafeRequestAsync(HttpMethod.Patch, $"/guilds/{guildId}", payload);
             return resp != null && resp.IsSuccessStatusCode;
+        }
+
+        public async Task<bool> ModifyGuildNsfwLevelAsync(string guildId, int nsfwLevel)
+        {
+            // 注意: Discord API 規範中，Guild 之 nsfw_level 欄位為唯讀屬性 (Read-only)，
+            // 直接 PATCH /guilds/{id} 傳入 nsfw_level 會被 Discord 拒絕 (HTTP 400 Bad Request)。
+            // 故在此自動轉為設定伺服器之不良內容過濾器 (Explicit Content Filter):
+            // nsfwLevel 為 1 或 3 (限制級/年齡限制) 時開啟最高掃描過濾 (2: ALL_MEMBERS)，安全時設為 0
+            int filter = (nsfwLevel == 1 || nsfwLevel == 3) ? 2 : (nsfwLevel == 2 ? 0 : 1);
+            return await ModifyGuildExplicitContentFilterAsync(guildId, filter);
         }
 
         #endregion
